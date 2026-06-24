@@ -18,11 +18,49 @@ export const GOAL = {
   },
 }
 
+/**
+ * Áreas marcadas (m), medidas a partir da linha de fundo e centradas no eixo Y.
+ * Usadas nas regras de bola parada — sobretudo o tiro de meta (Lei 16): a bola
+ * é posta na PEQUENA área e o adversário aguarda FORA da GRANDE área até a bola
+ * entrar em jogo.
+ */
+export const AREA = {
+  /** grande área: 16.5m de profundidade */
+  penaltyDepth: 16.5,
+  /** meia-largura da grande área: 7.32/2 + 16.5 = 20.16m */
+  penaltyHalfWidth: 20.16,
+  /** pequena área: 5.5m de profundidade */
+  goalDepth: 5.5,
+  /** meia-largura da pequena área: 7.32/2 + 5.5 = 9.16m */
+  goalHalfWidth: 9.16,
+  /** marca do pênalti: 11m da linha de fundo */
+  penaltySpot: 11,
+}
+
 export const MATCH = {
   /** duração de cada tempo em segundos de JOGO */
   halfSeconds: 45 * 60,
   /** segundos de JOGO por segundo de física (relógio corre acelerado) */
   clockRate: 8,
+}
+
+/**
+ * Saída de bola — pontapé inicial e recomeço após o gol (regras do jogo): cada
+ * time fica no SEU campo; o time que sai de bola posiciona DOIS jogadores no
+ * círculo central, sobre a bola, e o adversário aguarda fora do círculo. No 1º
+ * tempo sai um time; no 2º, o outro (ver `firstKickoff`).
+ */
+export const KICKOFF = {
+  /** raio do círculo central (m) — o adversário aguarda fora dele */
+  centerRadius: 9.15,
+  /** margem (m) da linha de meio-campo para o time que sai de bola */
+  takingMargin: 1,
+  /** recuo (m) do 2º batedor em relação à bola, rumo ao próprio campo */
+  mateBack: 3,
+  /** afastamento lateral (m) do 2º batedor em relação à bola */
+  mateSide: 4,
+  /** congela a jogada no apito (s) — evita roubada instantânea no recomeço */
+  deadball: 0.6,
 }
 
 export const PHYS = {
@@ -76,6 +114,8 @@ export const AI = {
   shootRange: 15,
   /** desvio lateral máximo (m) em relação ao centro do gol p/ arriscar o chute */
   shootCone: 15,
+  /** recuo (m) do poste ao mirar o canto no chute (margem de segurança) */
+  shotCornerInset: 1.0,
   /** tempo máximo segurando a bola antes de decidir passar (s) */
   maxHold: 0.8,
   /** distância de um adversário que conta como “pressão” (m) */
@@ -206,8 +246,14 @@ export const GK = {
   protectWindow: 0.6,
 
   // --- distribuição (itens 45-49) ---
-  /** segura a bola antes de distribuir (s de jogo) */
+  /** segura a bola antes de distribuir (s) — BASE; o reflexo encurta (ver gkHoldTime) */
   holdTime: 1.2,
+  /** tiro de meta: alcance (m) do chutão à frente (rumo ao meio-campo) sem alvo avançado livre */
+  goalKickReach: 48,
+  /** tiro de meta: só busca companheiro ao menos tão à frente (m) rumo ao ataque para o chutão */
+  goalKickMinFwd: 14,
+  /** tiro de meta: folga mínima (m) do companheiro avançado para confiar o chutão nele */
+  goalKickFree: 5,
   kickSpeedBase: 16,
   kickSpeedSkill: 12,
   throwSpeedBase: 12,
@@ -217,6 +263,14 @@ export const GK = {
   shortSpread: 0.1,
   /** erro extra sob pressão, escalado pela falta de composure (rad) */
   panicSpread: 0.12,
+  /**
+   * Saída de bola SEGURA (evita "tocar na fogueira"): o goleiro só joga curto
+   * num companheiro com bastante espaço e linha de passe limpa, dentro de um
+   * alcance curto; senão, manda o chutão longo.
+   */
+  shortFree: 6,
+  shortLane: 4,
+  shortMax: 32,
 
   // --- carga no goleiro (item 41) ---
   /** distância de um atacante que caracteriza carga (m) */
@@ -250,6 +304,31 @@ export const CELEBRATION = {
   spotInset: 13,
   /** distância (m) da linha lateral em que o autor comemora */
   spotSide: 9,
+  /** distância (m) do chute ao gol a partir da qual o gol é um "GOLAÇO" */
+  golacoDist: 23,
+}
+
+/**
+ * Colisão da bola com o CORPO do jogador de linha (bloqueios, desvios e
+ * interceptações físicas). Só vale para a bola SOLTA e RÁPIDA — bola lenta é
+ * dominada normalmente (tryGainLoose). A disputa decide entre amortecer
+ * (controlar) e apenas desviar (bloqueio), conforme os atributos.
+ */
+export const COLLIDE = {
+  /** abaixo desta velocidade (m/s) a bola é dominada, não ricocheteia */
+  minSpeed: 7,
+  /** restituição do ricochete no corpo (0=morre, 1=devolve tudo) */
+  restitution: 0.45,
+  /** ignora quem acabou de tocar enquanto a bola está a até X m dele */
+  grace: 2.2,
+  /** dispersão angular (rad) do desvio no corpo */
+  scatter: 0.5,
+  /** chance-base de AMORTECER (controlar) em vez de só desviar */
+  cushionBase: 0.16,
+  /** peso da habilidade (firstTouch/antecipação ou aéreo) no amortecimento */
+  cushionSkill: 0.4,
+  /** fração da velocidade mantida ao amortecer (mata a bola nos pés) */
+  cushionKeep: 0.25,
 }
 
 /** Domínio da bola solta / disputa aérea (firstTouch, jumping, heading). */
@@ -262,6 +341,16 @@ export const CONTROL = {
   aerialReach: 0.9,
   /** velocidade (m/s) com que a bola escapa num erro de domínio */
   squirtSpeed: 6,
+  /** velocidade (m/s) em que matar a bola fica nitidamente mais difícil */
+  hardTouchSpeed: 24,
+}
+
+/** Condução de bola com proteção (afasta do marcador mais próximo). */
+export const DRIBBLE = {
+  /** raio (m) em que o conduto começa a desviar do marcador */
+  avoidRange: 6,
+  /** peso do desvio lateral ao proteger a bola do marcador */
+  avoidWeight: 1.1,
 }
 
 export const DUEL = {
@@ -279,4 +368,45 @@ export const DUEL = {
   baseWin: 0.5,
   /** duração da bola parada numa cobrança de falta (s) */
   deadball: 1.0,
+}
+
+/**
+ * Reinícios de bola na LINHA DE FUNDO e LATERAL (tiro de meta, escanteio,
+ * arremesso lateral). Distâncias em m, tempos em s. Quem mandou a bola para
+ * fora (lastTouchId) define o reinício: atacante → tiro de meta; defensor →
+ * escanteio.
+ */
+export const RESTART = {
+  /**
+   * Bola parada no tiro de meta (s). É também o tempo de REESTRUTURAÇÃO: enquanto
+   * congela, os zagueiros abrem na saída, o meio/ataque sobem e o adversário sai
+   * da grande área (Lei 16). Mais alto = mais tempo de reorganização.
+   */
+  goalKickDeadball: 1.8,
+  /** bola parada no escanteio — dá tempo dos atacantes subirem para a área (s) */
+  cornerDeadball: 1.0,
+  /** bola parada no arremesso lateral (s) */
+  throwInDeadball: 0.4,
+  /** distância da linha de fundo onde a bola é posta no tiro de meta (m) — pequena área */
+  goalAreaOut: 5.5,
+  /** deslocamento lateral da bola no tiro de meta a partir do centro do gol (m) */
+  goalAreaSide: 7,
+  // --- reestruturação do tiro de meta (Lei 16) ---
+  /** profundidade (m) onde os zagueiros se postam para a saída curta (borda da área) */
+  outletDepth: 11,
+  /** afastamento lateral (m) dos zagueiros na saída (abrem nas pontas) */
+  outletWide: 15,
+  /** profundidade-base (m) onde meias/atacantes sobem para receber */
+  midfieldOutlet: 26,
+  /** profundidade extra (m) escalada pela função ofensiva ao subir */
+  attackOutlet: 22,
+  /** folga (m) ALÉM da linha da grande área onde o adversário aguarda */
+  defendWait: 3,
+  /** recuo da bandeirinha para dentro do campo no escanteio (m) */
+  cornerInset: 0.6,
+  /** alcance do cruzamento do escanteio à frente do gol (m): perto..longe do gol */
+  crossNear: 6,
+  crossFar: 14,
+  /** raio (m) na quina da linha de fundo em que o cobrador reconhece o escanteio e cruza */
+  cornerZone: 3,
 }

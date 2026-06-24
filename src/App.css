@@ -200,6 +200,62 @@
   color: #cbd5e1;
   animation: goalSlide 0.5s ease-out 0.52s both;
 }
+/* "história" do placar (EMPATE!, NA FRENTE!...) — kicker acima do GOL */
+.goal-context {
+  font-size: clamp(13px, 2vw, 20px);
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+  margin-bottom: 6px;
+  animation: goalDrop 0.45s ease-out both;
+}
+/* selo de marca pessoal (DOBLETE!, HAT-TRICK!) ao lado do nome */
+.goal-badge {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.62em;
+  font-weight: 900;
+  letter-spacing: 1px;
+  vertical-align: middle;
+  color: #0b1220;
+  background: #fff;
+  box-shadow: 0 0 0 2px var(--accent), 0 2px 10px rgba(0, 0, 0, 0.5);
+  animation: goalBadge 0.5s cubic-bezier(0.2, 1.7, 0.4, 1) 0.45s both;
+}
+.goal-assist {
+  margin-top: 6px;
+  font-size: clamp(13px, 2vw, 18px);
+  color: #e2e8f0;
+  animation: goalSlide 0.5s ease-out 0.38s both;
+}
+.goal-assist .lbl {
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 0.78em;
+  color: #94a3b8;
+  margin-right: 4px;
+}
+
+/* placar do cabeçalho pisca quando sai gol */
+.score.flash {
+  animation: scoreFlash 0.6s ease-out 3;
+}
+@keyframes scoreFlash {
+  0%, 100% { color: #fff; transform: scale(1); }
+  50% { color: #22c55e; transform: scale(1.18); }
+}
+@keyframes goalDrop {
+  from { transform: translateY(-12px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes goalBadge {
+  from { transform: scale(0) rotate(-12deg); opacity: 0; }
+  to { transform: scale(1) rotate(0); opacity: 1; }
+}
 
 @keyframes goalDim {
   from { opacity: 0; }
@@ -230,6 +286,25 @@
 @keyframes goalOut {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+
+/* acessibilidade: quem pede menos movimento recebe o banner estático (só fade) */
+@media (prefers-reduced-motion: reduce) {
+  .goal-card,
+  .goal-context,
+  .goal-big span,
+  .goal-team,
+  .goal-scorer,
+  .goal-assist,
+  .goal-badge,
+  .goal-scoreline,
+  .goal-min,
+  .score.flash {
+    animation: none !important;
+  }
+  .goal-overlay {
+    animation: goalOut 0.3s ease 3.3s both;
+  }
 }
 
 /* ---------- sidebar ---------- */
@@ -326,7 +401,9 @@
 }
 .feed .ev.half,
 .feed .ev.fulltime,
-.feed .ev.kickoff {
+.feed .ev.kickoff,
+.feed .ev.goalkick,
+.feed .ev.corner {
   border-color: #64748b;
   color: #cbd5e1;
 }

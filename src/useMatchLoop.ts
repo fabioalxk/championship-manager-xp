@@ -9,6 +9,7 @@ import type {
 import { MATCH, PHYS } from './sim/constants'
 import { createMatch, step, stepCelebration } from './sim/engine'
 import { drawMatch } from './render/renderer'
+import { goalRoar } from './sfx/crowd'
 
 export interface Hud {
   home: number
@@ -97,6 +98,8 @@ export const useMatchLoop = (
       // HUD atualiza ao mudar o segundo, surgir evento, acabar ou (des)comemorar
       const sec = Math.floor(m.time / MATCH.clockRate)
       const celeb = m.celebration !== null
+      // dispara o rugido da torcida exatamente no início da comemoração
+      if (celeb && !lastCeleb) goalRoar()
       if (
         sec !== lastSec ||
         m.events.length !== lastEvents ||

@@ -37,6 +37,7 @@ const buildTeam = (team: TeamId, idOffset: number, dir: Dir): Player[] =>
       downAmt: 0,
       ctrlAmt: 0,
       yellow: false,
+      goals: 0,
     }
     p.pos = homePos(p, dir)
     p.prevPos = { ...p.pos }

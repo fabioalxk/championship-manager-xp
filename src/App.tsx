@@ -3,6 +3,7 @@ import { canvasSize } from './render/renderer'
 import { TEAMS } from './sim/teams'
 import type { Celebration, TeamStats } from './sim/types'
 import { useMatchLoop, type Hud } from './useMatchLoop'
+import { primeAudio } from './sfx/crowd'
 import './App.css'
 
 const SCALE = 8
@@ -28,12 +29,14 @@ const pct = (a: number, b: number) => {
  */
 function GoalOverlay({ c }: { c: Celebration }) {
   const info = TEAMS[c.team]
+  const headline = c.golaco ? 'GOLAÇO!' : 'GOOOL!'
   return (
     <div className="goal-overlay" style={{ '--accent': info.shirt } as React.CSSProperties}>
       <div className="goal-flash" />
       <div className="goal-card">
+        {c.context && <div className="goal-context">{c.context}</div>}
         <div className="goal-big">
-          {'GOOOL!'.split('').map((ch, i) => (
+          {headline.split('').map((ch, i) => (
             <span key={i} style={{ animationDelay: `${i * 0.05}s` }}>
               {ch}
             </span>
@@ -47,6 +50,12 @@ function GoalOverlay({ c }: { c: Celebration }) {
           <div className="goal-scorer">
             {c.scorerNumber != null && <b>{c.scorerNumber}</b>}
             {c.scorerName}
+            {c.milestone && <span className="goal-badge">{c.milestone}</span>}
+          </div>
+        )}
+        {c.assistName && (
+          <div className="goal-assist">
+            <span className="lbl">assistência</span> {c.assistName}
           </div>
         )}
         <div className="goal-scoreline">
@@ -101,7 +110,7 @@ export default function App() {
           <span className="name">{TEAMS.home.name}</span>
         </div>
         <div className="center">
-          <div className="score">
+          <div className={hud.celebration ? 'score flash' : 'score'}>
             {hud.home} <small>×</small> {hud.away}
           </div>
           <div className="clock">{fmt(hud.time)}</div>
@@ -158,10 +167,23 @@ export default function App() {
       </div>
 
       <div className="controls">
-        <button onClick={() => setRunning((r) => !r)} disabled={hud.status === 'over'}>
+        <button
+          onClick={() => {
+            primeAudio() // destrava o áudio dentro do gesto do usuário
+            setRunning((r) => !r)
+          }}
+          disabled={hud.status === 'over'}
+        >
           {running ? '⏸ Pausar' : '▶ Jogar'}
         </button>
-        <button onClick={reset}>↺ Nova partida</button>
+        <button
+          onClick={() => {
+            primeAudio()
+            reset()
+          }}
+        >
+          ↺ Nova partida
+        </button>
         <label className="speed">
           Velocidade: {speed}×
           <input

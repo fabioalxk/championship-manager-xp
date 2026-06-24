@@ -46,12 +46,16 @@ export const controlReach = (a: Attrs, ballSpeed: number): number => {
   return base + aerial
 }
 
-/** Chance de errar o primeiro toque — pior cansado e sem firstTouch/composure/concentração. */
-export const miscontrol = (p: Player): number => {
+/**
+ * Chance de errar o primeiro toque — pior cansado, em bola forte e sem
+ * firstTouch/composure/concentração. Matar uma bola rápida exige mais técnica.
+ */
+export const miscontrol = (p: Player, ballSpeed: number): number => {
   const a = p.attrs
   const skill = nrm(a.firstTouch) * 0.5 + nrm(a.composure) * 0.25 + nrm(a.concentration) * 0.25
   const tired = 1 - p.energy
-  return clamp01((1 - skill) * CONTROL.miscontrolScale * (0.6 + tired))
+  const hard = clamp01(ballSpeed / CONTROL.hardTouchSpeed) // bola forte é mais difícil
+  return clamp01((1 - skill) * CONTROL.miscontrolScale * (0.6 + tired) * (0.7 + hard * 0.8))
 }
 
 // =====================================================================
@@ -126,8 +130,13 @@ export const shapeMul = (a: Attrs): number => 0.7 + nrm(a.teamwork) * 0.6
 /** Avanço das corridas no ataque (offTheBall). */
 export const offBallAdvance = (a: Attrs): number => 0.6 + nrm(a.offTheBall) * 0.8
 
-/** Tempo máximo segurando a bola antes de decidir (decisions). */
-export const holdMax = (a: Attrs): number => AI.maxHold * (0.7 + nrm(a.decisions) * 0.6)
+/**
+ * Tempo máximo segurando a bola antes de decidir (s) — decisão escolhe o momento,
+ * mas o REFLEXO (reação rápida) faz soltar mais cedo: quem tem reflexo alto toca,
+ * chuta ou passa quase de primeira, sem dar tempo de ser roubado.
+ */
+export const holdMax = (a: Attrs): number =>
+  AI.maxHold * (0.7 + nrm(a.decisions) * 0.6) * (1 - nrm(a.reflexes) * 0.4)
 
 /** Magnitude do efeito (curva) dado ao chute (flair). */
 export const flairSpin = (a: Attrs): number => 0.4 + nrm(a.flair) * 0.6
@@ -158,6 +167,14 @@ export const gkSaveBase = (a: Attrs): number =>
 /** Chance de SEGURAR (vs. espalmar) conforme handling e a força do chute. */
 export const gkHoldChance = (a: Attrs, speed: number): number =>
   clamp01(GK.holdBase + nrm(a.handling) * GK.holdSkill - speed * GK.holdSpeedPen)
+
+/**
+ * Tempo (s) que o GK segura antes de distribuir — o REFLEXO manda: goleiro de
+ * reflexo alto não fica dominando, solta rápido (toque ou chutão) e não dá tempo
+ * de pressionarem. Reflexo baixo demora mais a se decidir.
+ */
+export const gkHoldTime = (a: Attrs): number =>
+  GK.holdTime * (1 - nrm(a.reflexes) * 0.6)
 
 /** Velocidade do tiro de meta longo (m/s) — kicking. */
 export const gkKickSpeed = (a: Attrs): number =>

@@ -9,20 +9,25 @@ import type {
 } from './types'
 import {
   CELEBRATION,
+  COLLIDE,
   CONTROL,
+  DRIBBLE,
   DUEL,
   FIELD,
   GK,
   GOAL,
+  KICKOFF,
   MATCH,
   MOVE,
   PHYS,
+  RESTART,
   STAMINA,
 } from './constants'
 import { TEAMS } from './teams'
 import { buildPlayers, attackingGoalX, defendingGoalX, homePos } from './formation'
 import { decideAction, desiredTarget, engagement } from './ai'
 import {
+  aerialPower,
   carryPower,
   controlReach,
   dribbleSpeedMul,
@@ -65,6 +70,10 @@ const byId = (s: MatchState, id: number): Player =>
 
 const other = (t: TeamId): TeamId => (t === 'home' ? 'away' : 'home')
 
+/** Goleiro de um time. */
+const teamGk = (s: MatchState, t: TeamId): Player =>
+  s.players.find((p) => p.team === t && p.role === 'GK')!
+
 const emptyStats = (): TeamStats => ({
   shots: 0,
   shotsOnTarget: 0,
@@ -104,11 +113,15 @@ export const createMatch = (): MatchState => {
     possession: 'home',
     controllerId: null,
     holdTime: 0,
-    kickCooldown: 0.6,
+    kickCooldown: 0,
     tackleCooldown: 0,
     deadball: 0,
     restartTeam: null,
+    goalKick: false,
     lastShooterId: null,
+    lastShotDist: 0,
+    lastPasserId: null,
+    lastTouchId: null,
     score: { home: 0, away: 0 },
     time: 0,
     half: 1,
@@ -121,32 +134,64 @@ export const createMatch = (): MatchState => {
     // seed variando por partida (variedade), mas determinístico DENTRO da partida
     rngState: seedRng(Date.now()),
   }
-  addEvent(s, 'kickoff', 'home', 'Apito inicial — bola rolando!')
+  // 1º tempo: o time da saída posiciona dois jogadores na bola, no centro.
+  kickoff(s, s.firstKickoff)
+  addEvent(s, 'kickoff', s.firstKickoff, 'Apito inicial — bola rolando!')
   return s
 }
 
-/** Recoloca todos na formação e a bola no centro. */
+/**
+ * Saída de bola realista (pontapé inicial e recomeço após o gol). Segue as
+ * regras do jogo: cada time fica no SEU campo; o adversário aguarda FORA do
+ * círculo central; o time que sai de bola põe DOIS jogadores sobre a bola, no
+ * centro, e um deles assume a posse. A jogada congela um instante (deadball)
+ * para que ninguém roube a bola no apito.
+ */
 const kickoff = (s: MatchState, kicking: TeamId) => {
+  const center = vec(FIELD.cx, FIELD.cy)
+
+  // 1) cada jogador no SEU campo. O time que defende a saída fica fora do
+  //    círculo central; o que sai de bola pode encostar na linha do meio.
   for (const p of s.players) {
-    p.pos = homePos(p, s.attackDir[p.team])
-    p.vel = vec(0, 0)
-    // sem rastro de interpolação ao teleportar para a formação
-    p.prevPos = { ...p.pos }
-    p.smTarget = { ...p.pos }
-    p.settled = false
+    const pos = homePos(p, s.attackDir[p.team])
+    const ownGoalX = defendingGoalX(s.attackDir[p.team])
+    const margin = p.team === kicking ? KICKOFF.takingMargin : KICKOFF.centerRadius
+    // mantém o jogador atrás da linha de meio-campo, no seu lado do gramado
+    if (ownGoalX === 0) pos.x = Math.min(pos.x, FIELD.cx - margin)
+    else pos.x = Math.max(pos.x, FIELD.cx + margin)
+    placeTaker(p, pos)
   }
-  s.ball.pos = vec(FIELD.cx, FIELD.cy)
+
+  // 2) dois jogadores do time que sai de bola se posicionam no círculo central:
+  //    os dois de linha mais próximos do meio (em geral o atacante e um meia).
+  const towardOwn = defendingGoalX(s.attackDir[kicking]) === 0 ? -1 : 1
+  const takers = s.players
+    .filter((p) => p.team === kicking && p.role !== 'GK')
+    .sort((a, b) => dist(a.pos, center) - dist(b.pos, center))
+  const taker = takers[0]
+  const mate = takers[1]
+  placeTaker(taker, { ...center })
+  if (mate)
+    placeTaker(
+      mate,
+      vec(FIELD.cx + towardOwn * KICKOFF.mateBack, FIELD.cy + KICKOFF.mateSide),
+    )
+
+  // 3) bola no centro, nos pés do batedor; o time que sai fica com a posse.
+  s.ball.pos = { ...center }
   s.ball.vel = vec(0, 0)
   s.ball.prevPos = { ...s.ball.pos }
   s.ball.spin = 0
   s.possession = kicking
-  // o time que reinicia sai com a bola (evita gol relâmpago no recomeço)
-  s.controllerId = nearestOfTeamTo(s, kicking, s.ball.pos).id
+  s.controllerId = taker.id
+  s.lastTouchId = taker.id
   s.restartTeam = kicking
+  s.goalKick = false
   s.holdTime = 0
   s.kickCooldown = 0
-  s.tackleCooldown = 0.8
-  s.deadball = 0.5
+  s.tackleCooldown = KICKOFF.deadball + DUEL.cooldown
+  s.deadball = KICKOFF.deadball
+  s.lastPasserId = null // recomeço zera a cadeia de assistência
 }
 
 const clampPos = (p: Player) => {
@@ -368,6 +413,7 @@ const tryTackle = (s: MatchState) => {
     s.holdTime = 0
     s.tackleCooldown = DUEL.cooldown
     s.stats[def.team].tackles++
+    s.lastPasserId = null // posse mudou de lado: zera assistência
     return
   }
 
@@ -400,6 +446,8 @@ const tryTackle = (s: MatchState) => {
 const gkGrab = (s: MatchState, gk: Player) => {
   s.controllerId = gk.id
   s.possession = gk.team
+  s.lastTouchId = gk.id
+  s.lastPasserId = null
   s.holdTime = 0
   s.tackleCooldown = GK.protectWindow
 }
@@ -414,6 +462,8 @@ const spillBall = (s: MatchState, gk: Player) => {
   s.ball.spin = 0
   s.controllerId = null
   s.possession = null
+  s.lastTouchId = gk.id
+  s.lastPasserId = null // rebote: o gol seguinte não é "assistido"
   s.holdTime = 0
   s.kickCooldown = GK.spillCooldown // breve respiro para a segunda bola
   s.stats[gk.team].rebounds++
@@ -488,21 +538,80 @@ const tryGainLoose = (s: MatchState) => {
   }
   // jogador de linha: domina a bola, mas pode errar o primeiro toque e a bola
   // escapar à frente — pior cansado e sem firstTouch/composure/concentração.
-  if (rand(s) < miscontrol(cand)) {
+  if (rand(s) < miscontrol(cand, len(s.ball.vel))) {
     const away = len(s.ball.vel) > 0.5 ? norm(s.ball.vel) : vec(rand(s) - 0.5, rand(s) - 0.5)
     s.ball.vel = scale(norm(away), CONTROL.squirtSpeed)
+    s.lastTouchId = cand.id
     s.kickCooldown = 0.2
     return
   }
+  // valida a cadeia de assistência: o passe só credita assistência se quem
+  // recebeu for companheiro do passador e não ele mesmo (interceptação/auto-passe
+  // invalidam o crédito).
+  if (s.lastPasserId !== null) {
+    const passer = byId(s, s.lastPasserId)
+    if (passer.team !== cand.team || passer.id === cand.id) s.lastPasserId = null
+  }
   s.controllerId = cand.id
   s.possession = cand.team
+  s.lastTouchId = cand.id
   s.holdTime = 0
+}
+
+/**
+ * Colisão da bola SOLTA e rápida com o CORPO dos jogadores de linha: bloqueios,
+ * desvios e interceptações físicas (a bola deixa de atravessar os jogadores).
+ * Cada contato é uma disputa: o jogador AMORTECE (mata a bola nos pés) ou apenas
+ * DESVIA (bloqueio com ricochete), conforme a habilidade — domínio/antecipação
+ * na bola rasteira, impulsão/cabeceio na bola alta (firstTouch, anticipation,
+ * jumping, heading). O goleiro tem o seu próprio tratamento (gainReach/defesa).
+ */
+const ballPlayerCollisions = (s: MatchState) => {
+  if (s.controllerId !== null) return
+  const b = s.ball
+  const speed = len(b.vel)
+  if (speed < COLLIDE.minSpeed) return
+  const rr = PHYS.playerRadius + PHYS.ballRadius
+  for (const p of s.players) {
+    if (p.role === 'GK' || p.stun > 0) continue
+    // não bloqueia em si mesmo quem acabou de tocar, enquanto a bola está perto
+    if (p.id === s.lastTouchId && dist(p.pos, b.pos) < COLLIDE.grace) continue
+    const off = sub(b.pos, p.pos)
+    const d = len(off)
+    if (d >= rr || d < 1e-6) continue
+    const nv = scale(off, 1 / d)
+    const vn = b.vel.x * nv.x + b.vel.y * nv.y
+    if (vn >= 0) continue // bola já se afastando do corpo
+
+    b.pos = add(p.pos, scale(nv, rr)) // tira a bola de dentro do corpo
+    s.lastTouchId = p.id
+    const lofted = speed > CONTROL.loftSpeed
+    const skill = lofted
+      ? aerialPower(p.attrs)
+      : nrm(p.attrs.firstTouch) * 0.6 + nrm(p.attrs.anticipation) * 0.4
+
+    if (rand(s) < COLLIDE.cushionBase + skill * COLLIDE.cushionSkill) {
+      // AMORTECE: mata a bola nos pés; vira posse no próximo domínio
+      b.vel = scale(b.vel, COLLIDE.cushionKeep)
+      b.spin = 0
+      s.possession = p.team
+    } else {
+      // BLOQUEIA/DESVIA: ricocheteia no corpo com dispersão
+      b.vel = sub(b.vel, scale(nv, vn * (1 + COLLIDE.restitution)))
+      const a = (rand(s) - 0.5) * COLLIDE.scatter
+      const c = Math.cos(a)
+      const sn = Math.sin(a)
+      b.vel = vec(b.vel.x * c - b.vel.y * sn, b.vel.x * sn + b.vel.y * c)
+      b.spin = 0
+    }
+    return // no máximo um contato por passo
+  }
 }
 
 const teamDefending = (s: MatchState, goalX: number): TeamId =>
   defendingGoalX(s.attackDir.home) === goalX ? 'home' : 'away'
 
-/** Trata gols, ricochete nas laterais e lateral/tiro de meta simplificados. */
+/** Trata gols, quique na trave e os reinícios de bola fora (fundo e lateral). */
 const resolveBounds = (s: MatchState) => {
   const b = s.ball
   const inMouth = b.pos.y > GOAL.top && b.pos.y < GOAL.bottom
@@ -524,28 +633,23 @@ const resolveBounds = (s: MatchState) => {
     }
   }
 
-  // linhas de fundo (gols)
+  // linha de fundo: gol, tiro de meta ou escanteio conforme QUEM mandou fora
   if (b.pos.x <= 0) {
     if (inMouth) return scoreGoal(s, teamDefending(s, 0), 0)
-    b.pos.x = 0
-    b.vel.x = Math.abs(b.vel.x) * 0.4
+    return restartGoalLine(s, 0)
   } else if (b.pos.x >= FIELD.w) {
     if (inMouth) return scoreGoal(s, teamDefending(s, FIELD.w), FIELD.w)
-    b.pos.x = FIELD.w
-    b.vel.x = -Math.abs(b.vel.x) * 0.4
+    return restartGoalLine(s, FIELD.w)
   }
 
-  // laterais → arremesso para o adversário de quem tocou por último
+  // laterais → arremesso lateral para o adversário de QUEM TOCOU POR ÚLTIMO
   if (b.pos.y <= 0 || b.pos.y >= FIELD.h) {
-    b.pos.y = clamp(b.pos.y, 0.5, FIELD.h - 0.5)
-    b.vel = vec(0, 0)
-    const throwTeam = s.possession ? other(s.possession) : 'home'
-    const taker = nearestOfTeamTo(s, throwTeam, b.pos)
-    s.possession = throwTeam
-    s.restartTeam = throwTeam
-    s.controllerId = taker.id
-    s.holdTime = 0
-    s.deadball = 0.4
+    const lastTeam =
+      s.lastTouchId !== null ? byId(s, s.lastTouchId).team : s.possession
+    const throwTeam = lastTeam ? other(lastTeam) : 'home'
+    const exit = vec(b.pos.x, clamp(b.pos.y, RESTART.cornerInset, FIELD.h - RESTART.cornerInset))
+    const taker = nearestOfTeamTo(s, throwTeam, exit)
+    placeDeadBall(s, taker, throwTeam, RESTART.throwInDeadball)
   }
 }
 
@@ -556,20 +660,134 @@ const nearestOfTeamTo = (s: MatchState, t: TeamId, point: Vec2): Player => {
   return arr.reduce((b, p) => (dist(p.pos, point) < dist(b.pos, point) ? p : b))
 }
 
+/** Recoloca o cobrador num ponto sem rastro de interpolação no render. */
+const placeTaker = (p: Player, at: Vec2) => {
+  p.pos = { ...at }
+  p.vel = vec(0, 0)
+  p.prevPos = { ...p.pos }
+  p.smTarget = { ...p.pos }
+  p.settled = false
+}
+
+/**
+ * Põe a bola parada nos pés do cobrador e congela a jogada: o time que reinicia
+ * sai com a posse, o adversário recua (ver `desiredTarget`) e ninguém desarma na
+ * cobrança. Compartilhado por tiro de meta, escanteio e arremesso lateral.
+ */
+const placeDeadBall = (
+  s: MatchState,
+  taker: Player,
+  team: TeamId,
+  deadball: number,
+) => {
+  s.ball.pos = { ...taker.pos }
+  s.ball.prevPos = { ...s.ball.pos }
+  s.ball.vel = vec(0, 0)
+  s.ball.spin = 0
+  s.possession = team
+  s.restartTeam = team
+  s.goalKick = false // só o tiro de meta marca true (ver `goalKick`)
+  s.controllerId = taker.id
+  s.lastTouchId = taker.id
+  s.holdTime = 0
+  s.kickCooldown = 0
+  s.tackleCooldown = deadball + DUEL.cooldown
+  s.deadball = deadball
+}
+
+/**
+ * Bola na linha de fundo, fora do gol: se foi o ATACANTE que mandou para fora
+ * (finalização/cruzamento errado) → tiro de meta do time que defende; se foi o
+ * DEFENSOR (desvio/recuo) → escanteio do time que ataca.
+ */
+const restartGoalLine = (s: MatchState, gx: number) => {
+  const defender = teamDefending(s, gx)
+  const attacker = other(defender)
+  const lastTeam =
+    s.lastTouchId !== null ? byId(s, s.lastTouchId).team : s.possession
+  return lastTeam === defender
+    ? cornerKick(s, attacker, gx)
+    : goalKick(s, defender, gx)
+}
+
+/**
+ * Tiro de meta: o goleiro põe a bola na pequena área e a IA decide entre o
+ * chutão longo (kicking) e o toque curto num companheiro livre (ver
+ * `decideAction`). O lado da bola acompanha onde ela saiu.
+ */
+const goalKick = (s: MatchState, team: TeamId, gx: number) => {
+  const gk = teamGk(s, team)
+  const into = gx === 0 ? 1 : -1
+  const side = s.ball.pos.y < FIELD.cy ? -1 : 1
+  placeTaker(
+    gk,
+    vec(
+      gx + into * RESTART.goalAreaOut,
+      clamp(FIELD.cy + side * RESTART.goalAreaSide, 2, FIELD.h - 2),
+    ),
+  )
+  placeDeadBall(s, gk, team, RESTART.goalKickDeadball)
+  // marca o tiro de meta: dispara a reestruturação (Lei 16) e tira o goleiro do
+  // modo "fica cozinhando a bola" — distribui assim que o time se reorganiza.
+  s.goalKick = true
+}
+
+/**
+ * Escanteio: o atacante mais próximo cobra da bandeirinha; ao reiniciar, a IA o
+ * reconhece pela posição na quina e cruza para a área (ver `decideAction`).
+ */
+const cornerKick = (s: MatchState, team: TeamId, gx: number) => {
+  const into = gx === 0 ? 1 : -1
+  const cornerY = s.ball.pos.y < FIELD.cy ? RESTART.cornerInset : FIELD.h - RESTART.cornerInset
+  const corner = vec(gx + into * RESTART.cornerInset, cornerY)
+  const taker = nearestOfTeamTo(s, team, corner)
+  placeTaker(taker, corner)
+  placeDeadBall(s, taker, team, RESTART.cornerDeadball)
+  addEvent(s, 'corner', team, `Escanteio para ${TEAMS[team].name}`)
+}
+
 /**
  * Bola na rede: registra o gol e ABRE a sequência de comemoração (não recomeça
  * de imediato). A jogada congela; quem reinicia é o time que sofreu, mas só
  * depois que a comemoração termina (ver `stepCelebration`). `goalX` é a linha
  * do gol (0 ou FIELD.w) onde a bola entrou.
  */
+/** Selo de marca pessoal pelo nº de gols do autor na partida. */
+const goalMilestone = (goals: number): string | null =>
+  goals === 2 ? 'DOBLETE!' : goals === 3 ? 'HAT-TRICK!' : goals >= 4 ? `${goals} GOLS!` : null
+
+/** "História" do placar logo após o gol (diff = gols do autor − do adversário). */
+const goalContext = (scorer: TeamId, diff: number): string | null => {
+  if (diff === 0) return 'EMPATE!'
+  if (diff === 1) return `${TEAMS[scorer].name.toUpperCase()} NA FRENTE!`
+  if (diff > 1) return 'AMPLIA O PLACAR!'
+  return 'DIMINUI!' // marcou ainda perdendo
+}
+
 const scoreGoal = (s: MatchState, conceded: TeamId, goalX: number) => {
   const scorer = other(conceded)
+  // diferença ANTES do gol — define a "história" do lance (empate/virada/etc.)
+  const diffBefore = s.score[scorer] - s.score[conceded]
   s.score[scorer]++
+
   const shooter = s.lastShooterId !== null ? byId(s, s.lastShooterId) : null
   // só credita o autor se ele for do time que marcou (senão é gol contra)
   const author = shooter && shooter.team === scorer ? shooter : null
+  if (author) author.goals++
+
+  // assistência: último passador, se companheiro do autor e não ele mesmo
+  const passer = s.lastPasserId !== null ? byId(s, s.lastPasserId) : null
+  const assist =
+    passer && passer.team === scorer && (!author || passer.id !== author.id) ? passer : null
+
+  const golaco = author !== null && s.lastShotDist >= CELEBRATION.golacoDist
+  const milestone = author ? goalMilestone(author.goals) : null
+  const context = goalContext(scorer, diffBefore + 1)
+
   const who = author ? ` ${author.name}!` : '!'
-  addEvent(s, 'goal', scorer, `⚽ GOL ${TEAMS[scorer].of}!${who}`)
+  const label = golaco ? 'GOLAÇO' : 'GOL'
+  const assistTxt = assist ? ` (assist. ${assist.name})` : ''
+  addEvent(s, 'goal', scorer, `⚽ ${label} ${TEAMS[scorer].of}!${who}${assistTxt}`)
 
   // congela a bola DENTRO da rede, no ponto em que cruzou a linha — deixa
   // visível por onde o gol entrou.
@@ -583,6 +801,7 @@ const scoreGoal = (s: MatchState, conceded: TeamId, goalX: number) => {
   s.ball.spin = 0
   s.controllerId = null
   s.possession = null
+  s.lastPasserId = null
 
   // ponto da comemoração: escanteio do gol, do lado em que a bola entrou
   const side = s.ball.pos.y < FIELD.cy ? CELEBRATION.spotSide : FIELD.h - CELEBRATION.spotSide
@@ -593,6 +812,11 @@ const scoreGoal = (s: MatchState, conceded: TeamId, goalX: number) => {
     scorerId: author ? author.id : null,
     scorerName: author ? author.name : null,
     scorerNumber: author ? author.number : null,
+    scorerGoals: author ? author.goals : 0,
+    assistName: assist ? assist.name : null,
+    golaco,
+    milestone,
+    context,
     homeScore: s.score.home,
     awayScore: s.score.away,
     minute: minute(s),
@@ -742,7 +966,19 @@ export const step = (s: MatchState, dt: number): void => {
     const action = decideAction(s, carrier)
     if (action.type === 'dribble') {
       const goal = vec(attackingGoalX(s.attackDir[carrier.team]), FIELD.cy)
-      dribbleDir = dirTo(carrier.pos, goal)
+      let dd = dirTo(carrier.pos, goal)
+      // conduz protegendo a bola: desvia do marcador mais próximo (retenção)
+      const foe = nearestOpponentToPoint(s, carrier.team, carrier.pos, DRIBBLE.avoidRange)
+      if (foe) {
+        const away = dirTo(foe.pos, carrier.pos)
+        const close = clamp(
+          (DRIBBLE.avoidRange - dist(foe.pos, carrier.pos)) / DRIBBLE.avoidRange,
+          0,
+          1,
+        )
+        dd = norm(add(dd, scale(away, close * DRIBBLE.avoidWeight)))
+      }
+      dribbleDir = dd
     } else {
       const dir = dirTo(carrier.pos, action.target)
       // herda só o componente da corrida NA direção da bola: dá o passe/chute
@@ -755,12 +991,19 @@ export const step = (s: MatchState, dt: number): void => {
         (action.type === 'shoot' ? PHYS.maxSpin : PHYS.maxSpin * PHYS.passSpinScale) *
         flairSpin(carrier.attrs)
       s.ball.spin = (rand(s) - 0.5) * 2 * spinMax
+      s.lastTouchId = carrier.id
       if (action.type === 'shoot') {
         s.stats[carrier.team].shots++
         s.lastShooterId = carrier.id
+        // distância ao gol no instante do chute — rotula golaço de longe
+        s.lastShotDist = dist(carrier.pos, vec(attackingGoalX(s.attackDir[carrier.team]), FIELD.cy))
         addEvent(s, 'shot', carrier.team, `Chute de ${carrier.name}!`)
+      } else {
+        // passe: o conduto atual passa a ser o candidato a assistência
+        s.lastPasserId = carrier.id
       }
       s.controllerId = null
+      s.goalKick = false // bola chutada/distribuída: o tiro de meta acabou
       s.holdTime = 0
       s.kickCooldown = 0.3
     }
@@ -803,6 +1046,7 @@ export const step = (s: MatchState, dt: number): void => {
     s.ball.pos = add(s.ball.pos, scale(s.ball.vel, dt))
     s.ball.vel = scale(s.ball.vel, Math.pow(PHYS.ballDamping, dt))
     s.ball.roll += len(s.ball.vel) * dt // giro visual proporcional à velocidade
+    ballPlayerCollisions(s) // bloqueios/desvios no corpo dos jogadores de linha
     resolveBounds(s)
   }
 }

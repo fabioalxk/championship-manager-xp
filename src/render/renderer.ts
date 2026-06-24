@@ -33,13 +33,26 @@ export const drawMatch = (
   const px = (m: number) => (m + PAD) * scale
   const size = canvasSize(scale)
 
+  // fundo (arquibancada) — fica fixo; só o campo treme no impacto do gol
   ctx.fillStyle = COLORS.surround
   ctx.fillRect(0, 0, size.width, size.height)
 
+  const cel = state.celebration
+  ctx.save()
+  if (cel) {
+    // tremor de tela no impacto do gol, decaindo rápido (~0.45s)
+    const k = Math.max(0, 1 - cel.t / 0.45)
+    if (k > 0) {
+      const amp = scale * 0.55 * k * k
+      ctx.translate(Math.sin(cel.t * 92) * amp, Math.cos(cel.t * 78) * amp)
+    }
+  }
+
   drawPitch(ctx, px, scale)
-  for (const p of state.players) drawPlayer(ctx, p, px, scale, alpha)
+  for (const p of state.players) drawPlayer(ctx, p, px, scale, alpha, cel)
   drawBall(ctx, state, px, scale, alpha)
-  if (state.celebration) drawCelebration(ctx, state, px, scale)
+  if (cel) drawCelebration(ctx, state, px, scale)
+  ctx.restore()
 }
 
 /**
@@ -78,6 +91,65 @@ const drawCelebration = (
   ctx.beginPath()
   ctx.arc(cx, cy, scale * (1.1 + pulse * 1.3), 0, Math.PI * 2)
   ctx.stroke()
+  ctx.restore()
+
+  drawFlashbulbs(ctx, c.t, scale)
+  drawConfetti(ctx, c.t, accent, TEAMS[c.team].text, scale)
+}
+
+/**
+ * Flashes de câmera na arquibancada (faixa do PAD): pontos brancos que piscam
+ * em posições fixas, ligando/desligando no tempo — dá o clima de estádio.
+ */
+const drawFlashbulbs = (ctx: CanvasRenderingContext2D, t: number, scale: number) => {
+  const size = canvasSize(scale)
+  const band = PAD * scale
+  const tick = Math.floor(t * 12)
+  ctx.save()
+  for (let i = 1; i <= 40; i++) {
+    // liga/desliga pseudo-aleatório, mas determinístico por (i, tick)
+    if ((Math.sin(i * (tick + 1) * 7.13) * 0.5 + 0.5) < 0.8) continue
+    const x = (Math.sin(i * 78.233) * 0.5 + 0.5) * size.width
+    const top = i % 2 === 0
+    const yy = (Math.cos(i * 12.17) * 0.5 + 0.5) * band
+    const y = top ? yy : size.height - yy
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'
+    ctx.beginPath()
+    ctx.arc(x, y, scale * 0.32, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'
+    ctx.beginPath()
+    ctx.arc(x, y, scale * 0.85, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.restore()
+}
+
+/**
+ * Confete caindo nas cores do time que marcou. Posição é função pura do tempo
+ * (sem estado): cada partícula cai e balança, repetindo ao sair da tela.
+ */
+const drawConfetti = (
+  ctx: CanvasRenderingContext2D,
+  t: number,
+  c1: string,
+  c2: string,
+  scale: number,
+) => {
+  const size = canvasSize(scale)
+  const cols = [c1, '#ffffff', c2]
+  const w = scale * 0.55
+  const h = scale * 0.95
+  ctx.save()
+  ctx.globalAlpha = 0.85
+  for (let i = 0; i < 100; i++) {
+    const sx = (Math.sin(i * 12.9898) * 0.5 + 0.5) * size.width
+    const speed = 55 + (i % 7) * 14
+    const y = ((t * speed + i * 41) % (size.height + 40)) - 20
+    const x = sx + Math.sin(t * 2 + i) * scale * 1.6
+    ctx.fillStyle = cols[i % 3]
+    ctx.fillRect(x, y, w, h)
+  }
   ctx.restore()
 }
 
@@ -208,17 +280,26 @@ const drawPlayer = (
   px: Px,
   scale: number,
   alpha: number,
+  cel: MatchState['celebration'],
 ) => {
   const r = PHYS.playerRadius * 1.55 * scale
   // posição interpolada entre o passo anterior e o atual → movimento suave
   const ip = lerpV(p.prevPos, p.pos, alpha)
   const cx = px(ip.x)
-  const cy = px(ip.y)
+  const cyGround = px(ip.y)
   const info = TEAMS[p.team]
   const down = p.downAmt // 0..1 (transição suave em pé ↔ caído)
   const speed = len(p.vel)
 
-  drawShadow(ctx, cx, cy, r * 0.95, r * 0.55, scale * 0.4, 0.18)
+  // pulo de comemoração: o time que marcou saltita (a sombra fica no chão, o
+  // corpo sobe — vende o "pulando de alegria" mesmo na vista de cima)
+  const hop = cel !== null && p.team === cel.team && p.role !== 'GK' && down < 0.5
+  const bob = hop ? Math.abs(Math.sin(cel!.t * 7 + p.id)) * scale * 1.1 : 0
+  const cy = cyGround - bob
+
+  // sombra no chão; encolhe um nada quando o corpo está no ar (profundidade)
+  const sh = 1 - (bob / scale) * 0.12
+  drawShadow(ctx, cx, cyGround, r * 0.95 * sh, r * 0.55 * sh, scale * 0.4, 0.18)
 
   // trilha de velocidade: reforça a percepção de movimento e mascara o stepping
   if (speed > 1.5 && down < 0.5) {

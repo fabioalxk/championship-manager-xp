@@ -89,6 +89,8 @@ export interface Player {
   /** quão "dono da bola" está 0..1 (fade do realce do controlador) */
   ctrlAmt: number
   yellow: boolean
+  /** gols marcados na partida (para detectar bis/hat-trick) */
+  goals: number
 }
 
 export interface Ball {
@@ -111,6 +113,8 @@ export type EventType =
   | 'tackle'
   | 'half'
   | 'kickoff'
+  | 'goalkick'
+  | 'corner'
   | 'fulltime'
 
 export interface MatchEvent {
@@ -147,6 +151,16 @@ export interface Celebration {
   scorerId: number | null
   scorerName: string | null
   scorerNumber: number | null
+  /** nº de gols do autor na partida (2 = doblete, 3 = hat-trick) */
+  scorerGoals: number
+  /** quem deu a assistência (null = sem assistência / lance individual) */
+  assistName: string | null
+  /** finalização de longe (rotula "GOLAÇO") */
+  golaco: boolean
+  /** selo de marca pessoal ("DOBLETE!", "HAT-TRICK!") ou null */
+  milestone: string | null
+  /** "história" do placar ("EMPATE!", "BRASIL NA FRENTE!"...) ou null */
+  context: string | null
   /** placar já atualizado, para exibir no banner */
   homeScore: number
   awayScore: number
@@ -172,8 +186,16 @@ export interface MatchState {
   deadball: number
   /** time que reinicia a jogada parada (o adversário recua) */
   restartTeam: TeamId | null
+  /** o reinício atual é um TIRO DE META → o goleiro chuta longo (chutão), não toca curto */
+  goalKick: boolean
   /** último jogador a finalizar (para narrar o gol) */
   lastShooterId: number | null
+  /** distância (m) do último chute ao gol — rotula golaço de longe */
+  lastShotDist: number
+  /** último a dar um passe (candidato a assistência); null quando inválido */
+  lastPasserId: number | null
+  /** último jogador a tocar a bola (atribui lateral/escanteio e desvios) */
+  lastTouchId: number | null
   score: Record<TeamId, number>
   /** tempo de JOGO decorrido em segundos (0..5400) */
   time: number

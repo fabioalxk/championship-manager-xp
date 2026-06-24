@@ -46,8 +46,10 @@ const baseAttrs = (role: Role): Attrs => {
     vision: 63, anticipation: 62, positioning: 64, offTheBall: 60, decisions: 62,
     composure: 58, concentration: 62, consistency: 62, aggression: 60,
     bravery: 62, teamwork: 64, flair: 55,
-    // goleiro (jogador de linha quase não usa)
-    goalkeeping: 15, reflexes: 20, handling: 20, aerialReach: 25, oneOnOne: 20,
+    // reflexo: reação para tocar/chutar de primeira — atributo de TODOS (item: reflexos 0..100)
+    reflexes: 60,
+    // goleiro (jogador de linha quase não usa o resto)
+    goalkeeping: 15, handling: 20, aerialReach: 25, oneOnOne: 20,
     kicking: 45, throwing: 35, communication: 45,
   }
   if (role === 'GK')
