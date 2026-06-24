@@ -3,6 +3,34 @@
 Documento de melhorias para a movimentação, colisão, atributos e desempenho do goleiro
 no simulador. Cada item aponta o arquivo/função afetado para facilitar a implementação.
 
+---
+
+## ✅ Status: os 50 pontos foram implementados
+
+Resumo do que mudou e onde (tudo passa em `tsc -b`):
+
+- **`src/sim/types.ts`** — 10 atributos próprios de GK em `Attrs` (reflexes, handling,
+  aerialReach, oneOnOne, kicking, throwing, communication, composure, agility,
+  acceleration) e `saves`/`rebounds` em `TeamStats`.
+- **`src/sim/teams.ts`** — defaults dos novos atributos por posição; Alisson e Dibu
+  ganharam valores realistas.
+- **`src/sim/constants.ts`** — bloco `GK` centraliza **todos** os números do goleiro
+  (nada de mágico espalhado — itens 30/50).
+- **`src/sim/ratings.ts`** — `gkMaxSpeed`, `gkReach`, `gkSaveBase`, `gkHoldChance`,
+  `gkKickSpeed`, `gkThrowSpeed`, `gkDistroSpread`, `gkRating`.
+- **`src/sim/ai.ts`** — `desiredTarget` do GK (antecipação, sweeper, segurar a linha,
+  cobrir o canto, bola parada); `decideAction` do GK (segurar, curto×longo, erro sob
+  pressão); a linha de defesa compacta conforme a comunicação do GK.
+- **`src/sim/engine.ts`** — `advanceGk` (velocidade/anisotropia próprias), `reachOf`/
+  mergulho dinâmicos, `separate` não empurra o GK, falta por carga no goleiro,
+  e a reescrita da defesa em `tryGainLoose` (probabilidade rica + segurar/espalmar +
+  rebote + frango + 2ª tentativa). Colisão com a trave (item 44) já existia.
+- **`src/App.tsx`** — placar mostra **Defesas** e **Rebotes**.
+
+Para calibrar o desempenho, mexa só no bloco `GK` em `constants.ts`.
+
+---
+
 Estado atual (resumo):
 - **Movimentação:** `desiredTarget` em `src/sim/ai.ts:75` — fica na reta bola→gol, sai no máx. 6m, preso a ~8m × ±9m.
 - **Defesa:** `tryGainLoose` em `src/sim/engine.ts:277` — UMA tentativa, `saveProb` depende só de `goalkeeping`.

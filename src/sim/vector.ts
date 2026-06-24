@@ -28,3 +28,15 @@ export const limit = (a: Vec2, max: number): Vec2 => {
 
 /** Direção unitária de `from` para `to`. */
 export const dirTo = (from: Vec2, to: Vec2): Vec2 => norm(sub(to, from))
+
+/** Interpolação linear escalar. */
+export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
+
+/** Interpolação linear entre dois pontos. */
+export const lerpV = (a: Vec2, b: Vec2, t: number): Vec2 => ({
+  x: lerp(a.x, b.x, t),
+  y: lerp(a.y, b.y, t),
+})
+
+/** Vetor perpendicular (girado 90° à esquerda). */
+export const perp = (a: Vec2): Vec2 => ({ x: -a.y, y: a.x })

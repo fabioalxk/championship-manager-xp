@@ -29,11 +29,18 @@ const buildTeam = (team: TeamId, idOffset: number, dir: Dir): Player[] =>
       formationPos: s.formationPos,
       pos: { x: 0, y: 0 },
       vel: { x: 0, y: 0 },
+      prevPos: { x: 0, y: 0 },
+      smTarget: { x: 0, y: 0 },
+      settled: false,
       energy: 1,
       stun: 0,
+      downAmt: 0,
+      ctrlAmt: 0,
       yellow: false,
     }
     p.pos = homePos(p, dir)
+    p.prevPos = { ...p.pos }
+    p.smTarget = { ...p.pos }
     return p
   })
 

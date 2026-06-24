@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import type { MatchEvent, MatchState, MatchStatus, TeamStats } from './sim/types'
+import type {
+  Celebration,
+  MatchEvent,
+  MatchState,
+  MatchStatus,
+  TeamStats,
+} from './sim/types'
 import { MATCH, PHYS } from './sim/constants'
-import { createMatch, step } from './sim/engine'
+import { createMatch, step, stepCelebration } from './sim/engine'
 import { drawMatch } from './render/renderer'
 
 export interface Hud {
@@ -13,6 +19,8 @@ export interface Hud {
   status: MatchStatus
   events: MatchEvent[]
   stats: { home: TeamStats; away: TeamStats }
+  /** comemoração de gol em andamento (alimenta o banner central) */
+  celebration: Celebration | null
 }
 
 const snapshot = (m: MatchState): Hud => ({
@@ -23,6 +31,7 @@ const snapshot = (m: MatchState): Hud => ({
   status: m.status,
   events: m.events.slice(-8).reverse(),
   stats: { home: m.stats.home, away: m.stats.away },
+  celebration: m.celebration,
 })
 
 /**
@@ -54,6 +63,7 @@ export const useMatchLoop = (
     let lastSec = -1
     let lastEvents = -1
     let lastStatus: MatchStatus | '' = ''
+    let lastCeleb = false
 
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame)
@@ -61,7 +71,14 @@ export const useMatchLoop = (
       last = now
 
       const m = matchRef.current
-      if (runningRef.current && m.status === 'play') {
+      // a comemoração roda em tempo REAL (legível em qualquer velocidade); a
+      // jogada normal corre acelerada conforme o controle de velocidade.
+      const celebrating = m.celebration !== null
+      const stepping = runningRef.current && m.status === 'play' && !celebrating
+      if (celebrating && runningRef.current) {
+        acc = 0 // sem dívida de passos pendentes ao voltar do congelamento
+        stepCelebration(m, dtReal)
+      } else if (stepping) {
         acc += dtReal * speedRef.current
         let steps = 0
         while (acc >= PHYS.dt && steps < 16) {
@@ -69,16 +86,27 @@ export const useMatchLoop = (
           acc -= PHYS.dt
           steps++
         }
+        // descarta a dívida acumulada se estourou o teto (anti "spiral of death")
+        if (acc > PHYS.dt) acc = PHYS.dt
       }
 
-      drawMatch(ctx, m, scale)
+      // alpha = fração do passo já decorrida → render interpola prev→pos (suave)
+      const alpha = stepping ? Math.min(1, acc / PHYS.dt) : 1
+      drawMatch(ctx, m, scale, alpha)
 
-      // HUD atualiza ao mudar o segundo de jogo, surgir evento ou acabar
+      // HUD atualiza ao mudar o segundo, surgir evento, acabar ou (des)comemorar
       const sec = Math.floor(m.time / MATCH.clockRate)
-      if (sec !== lastSec || m.events.length !== lastEvents || m.status !== lastStatus) {
+      const celeb = m.celebration !== null
+      if (
+        sec !== lastSec ||
+        m.events.length !== lastEvents ||
+        m.status !== lastStatus ||
+        celeb !== lastCeleb
+      ) {
         lastSec = sec
         lastEvents = m.events.length
         lastStatus = m.status
+        lastCeleb = celeb
         setHud(snapshot(m))
       }
     }

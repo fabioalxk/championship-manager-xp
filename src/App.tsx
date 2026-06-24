@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import { canvasSize } from './render/renderer'
 import { TEAMS } from './sim/teams'
-import type { TeamStats } from './sim/types'
+import type { Celebration, TeamStats } from './sim/types'
 import { useMatchLoop, type Hud } from './useMatchLoop'
 import './App.css'
 
@@ -19,6 +19,49 @@ const halfLabel = (hud: Hud) =>
 const pct = (a: number, b: number) => {
   const t = a + b
   return t === 0 ? 50 : Math.round((a / t) * 100)
+}
+
+/**
+ * Banner central da comemoração: anuncia em sequência animada o GOL, de qual
+ * time (bandeira + artigo), QUEM marcou (nº + nome) e o placar resultante.
+ * A animação é puramente CSS; o React só monta/desmonta conforme a jogada.
+ */
+function GoalOverlay({ c }: { c: Celebration }) {
+  const info = TEAMS[c.team]
+  return (
+    <div className="goal-overlay" style={{ '--accent': info.shirt } as React.CSSProperties}>
+      <div className="goal-flash" />
+      <div className="goal-card">
+        <div className="goal-big">
+          {'GOOOL!'.split('').map((ch, i) => (
+            <span key={i} style={{ animationDelay: `${i * 0.05}s` }}>
+              {ch}
+            </span>
+          ))}
+        </div>
+        <div className="goal-team">
+          <img className="goal-flag" src={info.flag} alt={info.name} />
+          <span>GOL {info.of}</span>
+        </div>
+        {c.scorerName && (
+          <div className="goal-scorer">
+            {c.scorerNumber != null && <b>{c.scorerNumber}</b>}
+            {c.scorerName}
+          </div>
+        )}
+        <div className="goal-scoreline">
+          <span className="gs home">
+            {TEAMS.home.name} {c.homeScore}
+          </span>
+          <small>×</small>
+          <span className="gs away">
+            {c.awayScore} {TEAMS.away.name}
+          </span>
+        </div>
+        <div className="goal-min">{c.minute}&apos;</div>
+      </div>
+    </div>
+  )
 }
 
 function StatRow({
@@ -71,12 +114,15 @@ export default function App() {
       </header>
 
       <div className="main">
-        <canvas
-          ref={canvasRef}
-          width={size.width}
-          height={size.height}
-          className="pitch"
-        />
+        <div className="pitch-wrap">
+          <canvas
+            ref={canvasRef}
+            width={size.width}
+            height={size.height}
+            className="pitch"
+          />
+          {hud.celebration && <GoalOverlay c={hud.celebration} />}
+        </div>
 
         <aside className="sidebar">
           <div className="stats">
@@ -91,6 +137,8 @@ export default function App() {
             </div>
             <StatRow label="Finalizações" home={h.shots} away={a.shots} />
             <StatRow label="No gol" home={h.shotsOnTarget} away={a.shotsOnTarget} />
+            <StatRow label="Defesas" home={h.saves} away={a.saves} />
+            <StatRow label="Rebotes" home={h.rebounds} away={a.rebounds} />
             <StatRow label="Desarmes" home={h.tackles} away={a.tackles} />
             <StatRow label="Faltas" home={h.fouls} away={a.fouls} />
             <StatRow label="Amarelos" home={h.yellows} away={a.yellows} />
