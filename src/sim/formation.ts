@@ -1,5 +1,5 @@
 import type { Dir, Player, TeamId, Vec2 } from './types'
-import { FIELD } from './constants'
+import { AREA, FIELD } from './constants'
 import { rosterFor } from './teams'
 
 /**
@@ -16,6 +16,15 @@ export const attackingGoalX = (dir: Dir): number => (dir === 1 ? FIELD.w : 0)
 
 /** Gol que o time DEFENDE, conforme sua direção. */
 export const defendingGoalX = (dir: Dir): number => (dir === 1 ? 0 : FIELD.w)
+
+/** O ponto está dentro da grande área cujo gol fica em `goalX` (0 ou FIELD.w)? */
+export const inPenaltyArea = (pos: Vec2, goalX: number): boolean => {
+  const inX =
+    goalX === 0
+      ? pos.x <= AREA.penaltyDepth
+      : pos.x >= FIELD.w - AREA.penaltyDepth
+  return inX && Math.abs(pos.y - FIELD.cy) <= AREA.penaltyHalfWidth
+}
 
 const buildTeam = (team: TeamId, idOffset: number, dir: Dir): Player[] =>
   rosterFor(team).map((s, i) => {

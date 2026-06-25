@@ -16,6 +16,8 @@ export interface Hud {
   away: number
   /** segundos de jogo */
   time: number
+  /** acréscimos do tempo atual (s de jogo) */
+  stoppage: number
   half: 1 | 2
   status: MatchStatus
   events: MatchEvent[]
@@ -28,6 +30,7 @@ const snapshot = (m: MatchState): Hud => ({
   home: m.score.home,
   away: m.score.away,
   time: m.time,
+  stoppage: m.stoppage,
   half: m.half,
   status: m.status,
   events: m.events.slice(-8).reverse(),

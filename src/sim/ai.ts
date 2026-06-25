@@ -1,12 +1,14 @@
 import type { Dir, MatchState, Player, TeamId, Vec2 } from './types'
-import { AI, AREA, FIELD, GK, GOAL, MOVE, PHYS, RESTART } from './constants'
+import { AI, AIR, AREA, FIELD, FREEKICK, GK, GOAL, MOVE, PHYS, RESTART, SHOT, THROW } from './constants'
 import { attackingGoalX, defendingGoalX, homePos } from './formation'
 import {
   chaseLead,
   crossSpeed,
   crossSpread,
+  gkDistroQuality,
   gkDistroSpread,
   gkHoldTime,
+  gkKickReach,
   gkKickSpeed,
   gkThrowSpeed,
   holdMax,
@@ -20,13 +22,26 @@ import {
   shotSpeed,
   shotSpread,
 } from './ratings'
-import { add, dirTo, dist, scale, vec } from './vector'
+import { add, dirTo, dist, perp, scale, vec } from './vector'
 import { rand } from './rng'
 
 export type Action =
   | { type: 'dribble' }
-  | { type: 'pass'; target: Vec2; speed: number; to: Player | null }
-  | { type: 'shoot'; target: Vec2; speed: number }
+  | { type: 'pass'; target: Vec2; speed: number; to: Player | null; loft?: number }
+  | { type: 'shoot'; target: Vec2; speed: number; loft?: number }
+
+/**
+ * Arco de uma bola LANÇADA com altura: dado o alcance horizontal `d` (m) e um
+ * pico de arco desejado `peak` (m), devolve a velocidade horizontal e a vertical
+ * (loft) para a bola subir e POUSAR perto do alvo. O tempo de voo sai do pico
+ * (t = √(8·peak/g)); a velocidade horizontal é d/t (limitada). É a fonte única do
+ * tiro de meta, do chutão longo e do cruzamento flutuado.
+ */
+const arc = (d: number, peak: number): { speed: number; loft: number } => {
+  const t = Math.sqrt((8 * peak) / AIR.gravity)
+  const speed = clamp(d / t, AIR.arcSpeedMin, AIR.arcSpeedMax)
+  return { speed, loft: clamp((AIR.gravity * t) / 2, 0, AIR.maxVz) }
+}
 
 const teammates = (s: MatchState, t: TeamId) =>
   s.players.filter((p) => p.team === t)
@@ -59,16 +74,41 @@ const nearestOpp = (s: MatchState, p: Player): Player =>
     .reduce((b, o) => (dist(o.pos, p.pos) < dist(b.pos, p.pos) ? o : b))
 
 /**
+ * Espaço livre (m) à FRENTE do conduto rumo ao ataque: distância ao adversário
+ * mais próximo que está adiante (no sentido de ataque) E dentro do corredor de
+ * condução. Muito espaço = convite para CARREGAR a bola; pouco = melhor bater
+ * ou passar. Infinity quando ninguém barra o caminho à frente.
+ */
+const forwardSpace = (s: MatchState, carrier: Player, fwd: number): number => {
+  let min = Infinity
+  for (const o of opponents(s, carrier.team)) {
+    if (o.role === 'GK') continue
+    if ((o.pos.x - carrier.pos.x) * fwd <= 0) continue // só quem está à frente
+    if (Math.abs(o.pos.y - carrier.pos.y) > AI.carryLane) continue // fora da rota
+    const d = dist(o.pos, carrier.pos)
+    if (d < min) min = d
+  }
+  return min
+}
+
+/**
  * Onde a bola estará em `t` segundos, já considerando o amortecimento de rolagem.
  * Distância percorrida por uma bola com decaimento exponencial:
  *   ∫ v0·damp^τ dτ = v0·(damp^t − 1)/ln(damp).
  * Serve para o interceptador correr para ONDE a bola vai, não para onde está.
  */
 const predictBall = (s: MatchState, t: number): Vec2 => {
+  const b = s.ball
+  // bola NO AR: ninguém a alcança em voo — corre para o ponto onde ela POUSA
+  // (tempo de queda pela gravidade; no ar quase não há atrito horizontal).
+  if (b.z > AIR.groundBand || b.vz > 0.1) {
+    const tLand = (b.vz + Math.sqrt(b.vz * b.vz + 2 * AIR.gravity * b.z)) / AIR.gravity
+    return add(b.pos, scale(b.vel, tLand))
+  }
   const d = PHYS.ballDamping
   const ln = Math.log(d)
   const f = Math.abs(ln) > 1e-6 ? (Math.pow(d, t) - 1) / ln : t
-  return add(s.ball.pos, scale(s.ball.vel, f))
+  return add(b.pos, scale(b.vel, f))
 }
 
 /** Tempo aproximado (s) de um passe percorrer `d` metros (perde ~15% no caminho). */
@@ -113,6 +153,36 @@ const teamGk = (s: MatchState, t: TeamId): Player | undefined =>
   s.players.find((p) => p.team === t && p.role === 'GK')
 
 /**
+ * Chutão de ALÍVIO que FOGE do adversário (erro grave: servir o atacante). De um
+ * leque de quedas à frente, escolhe a mais LIVRE — maior folga somando a linha de
+ * chute e a zona de queda, para não bater no marcador nem cair no pé dele. O GK
+ * melhor (gkDistroQuality) confia nessa leitura e desvia; o fraco puxa para o
+ * chutão reto ao meio. O alcance cresce com kicking: os fortes vão da área ao
+ * meio-campo, e numa saída difícil chutam o mais longe e limpo que conseguem.
+ */
+const gkClearTarget = (s: MatchState, gk: Player, fwd: number): Vec2 => {
+  const base = clamp(gk.pos.x + fwd * gkKickReach(gk.attrs), 4, FIELD.w - 4)
+  const foes = opponents(s, gk.team).filter((o) => o.role !== 'GK')
+  let best = vec(base, FIELD.cy)
+  let bestClear = -Infinity
+  for (let i = 0; i < GK.clearLanes; i++) {
+    const frac = GK.clearLanes > 1 ? i / (GK.clearLanes - 1) : 0.5
+    const t = vec(base, clamp(FIELD.h * frac, 4, FIELD.h - 4))
+    const lane = laneClearance(s, gk.pos, t, gk.team)
+    const land = foes.length ? Math.min(...foes.map((o) => dist(o.pos, t))) : Infinity
+    const clear = Math.min(lane, land)
+    if (clear > bestClear) {
+      bestClear = clear
+      best = t
+    }
+  }
+  // goleiro melhor segue a direção livre; pior tende ao chutão reto ao meio
+  const straight = vec(base, FIELD.cy)
+  const q = gkDistroQuality(gk.attrs)
+  return add(straight, scale({ x: best.x - straight.x, y: best.y - straight.y }, q))
+}
+
+/**
  * Mira do chute: o canto do gol mais distante do goleiro adversário, recuado do
  * poste por uma margem. Um chute "no cantinho" é mais difícil de defender que no
  * meio do gol (o spread por finishing/longShots ainda decide se entra).
@@ -133,6 +203,38 @@ const aimShot = (s: MatchState, carrier: Player, dir: Dir): Vec2 => {
   return vec(gx, y)
 }
 
+/**
+ * Alvo de um CRUZAMENTO para a área de ataque: cai entre o primeiro pau e a marca
+ * do pênalti, variando perto/longe da linha de fundo e ao longo da boca do gol.
+ * Fonte única usada tanto no escanteio quanto no cruzamento de bola em jogo (ponta).
+ */
+const crossTarget = (s: MatchState, atkGx: number): Vec2 => {
+  const into = atkGx === 0 ? 1 : -1
+  const reach = RESTART.crossNear + rand(s) * (RESTART.crossFar - RESTART.crossNear)
+  return vec(atkGx + into * reach, FIELD.cy + (rand(s) - 0.5) * GOAL.width)
+}
+
+/**
+ * Bola alçada na área (escanteio ou cruzamento da linha de fundo). Boa parte sai
+ * FLUTUADA — sobe à altura de cabeça e cai na área para o cabeceio (arco) — e o
+ * resto vai rasteiro/forte (cruzamento tenso). `target` é o ponto de queda (antes
+ * do ruído de mira); o ruído só vira a DIREÇÃO, então o arco mede a distância real.
+ */
+const crossAction = (
+  s: MatchState,
+  carrier: Player,
+  target: Vec2,
+  pressured: boolean,
+): Action => {
+  const aim = withNoise(s, carrier.pos, target, crossSpread(carrier.attrs, pressured))
+  if (rand(s) < AIR.crossLoftChance) {
+    const peak = AIR.crossPeakMin + rand(s) * (AIR.crossPeakMax - AIR.crossPeakMin)
+    const a = arc(dist(carrier.pos, target), peak)
+    return { type: 'pass', target: aim, speed: a.speed, to: null, loft: a.loft }
+  }
+  return { type: 'pass', target: aim, speed: crossSpeed(carrier.attrs), to: null }
+}
+
 const sign = (dir: Dir): number => dir // +1 ataca para a direita
 
 /**
@@ -146,7 +248,9 @@ export const engagement = (s: MatchState, p: Player): number => {
   const anticip = 0.85 + nrm(p.attrs.positioning) * 0.3
   let e = (1.18 - d / MOVE.engageRange) * anticip
   if (s.possession && s.possession !== p.team)
-    e *= 0.75 + nrm(p.attrs.workRate) * 0.45
+    // sem a posse: empenho (workRate) + agressividade definem a intensidade da
+    // pressão — o agressivo fecha mais e mais cedo (contrapeso ao risco de falta).
+    e *= 0.75 + nrm(p.attrs.workRate) * 0.45 + nrm(p.attrs.aggression) * 0.12
   return clamp(e, MOVE.engageFloor, 1)
 }
 
@@ -197,6 +301,13 @@ const attackTarget = (s: MatchState, p: Player, fwd: number, home: Vec2): Vec2 =
   const bias = humanBias(p)
 
   let tx = home.x + fwd * adv * AI.attackPush + bias.x
+  // corrida nas COSTAS da defesa: quem se movimenta bem (offTheBall) ataca a
+  // linha de impedimento, ganhando profundidade até quase o último defensor.
+  if (p.role !== 'GK' && p.id !== s.controllerId) {
+    const line = offsideLineFwd(s, p.team, fwd) + AI.offsideSlack
+    const push = nrm(p.attrs.offTheBall) * AI.offBallRunDepth
+    tx = tx * (1 - push) + line * fwd * push
+  }
   const ty = home.y + (ball.pos.y - FIELD.cy) * AI.blockShiftY * pull + bias.y
 
   // corrida em profundidade respeitando a linha de impedimento
@@ -215,8 +326,15 @@ const defendTarget = (s: MatchState, p: Player, home: Vec2): Vec2 => {
   const compact = AI.compactX * shapeMul(p.attrs)
   let tx = home.x + (ball.pos.x - home.x) * compact * pull + bias.x
   let ty = home.y + (ball.pos.y - FIELD.cy) * AI.blockShiftY * pull + bias.y
-  // marcação individual: cola um pouco no adversário mais próximo (marking)
-  const m = markPull(p.attrs) * pull * AI.markTight
+  // marcação individual: cola no adversário mais próximo (marking). Mantém um
+  // PISO mesmo longe da bola (não larga o homem) e aperta conforme a COMUNICAÇÃO
+  // do goleiro, que organiza a marcação da linha.
+  let commTight = 1
+  if (p.role === 'DEF' || p.role === 'MID') {
+    const gkc = teamGk(s, p.team)
+    if (gkc) commTight = 1 + nrm(gkc.attrs.communication) * 0.35
+  }
+  const m = markPull(p.attrs) * (0.35 + (1 - 0.35) * pull) * AI.markTight * commTight
   if (m > 1e-3) {
     const o = nearestOpp(s, p)
     tx += (o.pos.x - tx) * m
@@ -229,6 +347,85 @@ const defendTarget = (s: MatchState, p: Player, home: Vec2): Vec2 => {
     ty = FIELD.cy + (ty - FIELD.cy) * (1 - GK.commandShift * comm)
   }
   return vec(clamp(tx, 2, FIELD.w - 2), clamp(ty, 2, FIELD.h - 2))
+}
+
+/**
+ * Reestruturação no TIRO DE META (Lei 16). Enquanto a jogada está congelada:
+ * - o adversário aguarda FORA da grande área (não pode ficar dentro dela);
+ * - quem cobra abre os zagueiros nas pontas (saída curta e segura) e sobe o
+ *   meio/ataque para oferecer o lançamento.
+ * É o tempo e a organização que faltavam — nada de cobrar com todo mundo
+ * amontoado na área.
+ */
+const goalKickStation = (s: MatchState, p: Player): Vec2 => {
+  const kt = s.restartTeam as TeamId
+  const gx = defendingGoalX(s.attackDir[kt]) // linha de onde se cobra
+  const into = gx === 0 ? 1 : -1 // sentido para dentro do campo
+
+  const home = homePos(p, s.attackDir[p.team])
+
+  if (p.team !== kt) {
+    // adversário dentro da grande área → recua para a borda dela e espera
+    const insideWidth = Math.abs(home.y - FIELD.cy) < AREA.penaltyHalfWidth
+    const insideDepth = (home.x - gx) * into < AREA.penaltyDepth + RESTART.defendWait
+    const tx =
+      insideWidth && insideDepth
+        ? gx + into * (AREA.penaltyDepth + RESTART.defendWait)
+        : home.x
+    return vec(clamp(tx, 2, FIELD.w - 2), home.y)
+  }
+
+  // zagueiros abrem nas pontas, na borda da área, dando saída curta segura
+  if (p.role === 'DEF') {
+    const wing = home.y < FIELD.cy ? -1 : 1
+    return vec(
+      gx + into * RESTART.outletDepth,
+      clamp(FIELD.cy + wing * RESTART.outletWide, 5, FIELD.h - 5),
+    )
+  }
+  // meias e atacantes saem da área e sobem para receber (medindo/lançamento)
+  const up = RESTART.midfieldOutlet + ROLE_ADVANCE[p.role] * RESTART.attackOutlet
+  return vec(clamp(gx + into * up, 5, FIELD.w - 5), home.y)
+}
+
+/**
+ * Reestruturação no TIRO LIVRE (Lei 13). Enquanto a jogada está congelada:
+ * - o time que cobra sobe para oferecer a jogada (o cobrador fica na bola);
+ * - a defesa, numa falta PERIGOSA, arma a BARREIRA a 9,15 m na linha bola→gol
+ *   (os defensores mais próximos do ponto da barreira a formam, espalhados na
+ *   perpendicular); os demais mantêm a formação/marcação.
+ */
+const freeKickStation = (s: MatchState, p: Player): Vec2 => {
+  const kt = s.restartTeam as TeamId
+  const dir = s.attackDir[p.team]
+  const home = homePos(p, dir)
+  const spot = s.ball.pos
+
+  // time que cobra: o cobrador já está na bola; os demais sobem para o ataque
+  if (p.team === kt) {
+    if (p.id === s.controllerId) return p.pos
+    return attackTarget(s, p, sign(dir), home)
+  }
+
+  // defesa: só arma barreira nas faltas perigosas (perto do próprio gol)
+  const goalC = vec(defendingGoalX(dir), FIELD.cy)
+  if (dist(spot, goalC) >= FREEKICK.dangerDist) return home
+
+  // os N defensores de linha mais próximos do ponto da barreira a formam
+  const toGoal = dirTo(spot, goalC)
+  const wallPoint = add(spot, scale(toGoal, FREEKICK.wallDist))
+  const wallers = opponents(s, kt)
+    .filter((o) => o.role !== 'GK')
+    .sort((a, b) => dist(a.pos, wallPoint) - dist(b.pos, wallPoint))
+    .slice(0, FREEKICK.wallMax)
+  const idx = wallers.findIndex((w) => w.id === p.id)
+  if (idx < 0) return home // não é da barreira → mantém a formação/marcação
+
+  // espalha na perpendicular à linha bola→gol, centralizado na barreira
+  const side = perp(toGoal)
+  const offset = (idx - (wallers.length - 1) / 2) * (PHYS.playerRadius * 2)
+  const t = add(wallPoint, scale(side, offset))
+  return vec(clamp(t.x, 2, FIELD.w - 2), clamp(t.y, 2, FIELD.h - 2))
 }
 
 /**
@@ -252,7 +449,16 @@ export const desiredTarget = (s: MatchState, p: Player): Vec2 => {
     const sweep = GK.comeOutBase + nrm(p.attrs.oneOnOne) * GK.comeOutSkill
     let comeOut = clamp(dToGoal * sweep, GK.comeOutMin, GK.comeOutMax)
     // perigo iminente (bola perto) → segura a linha para reagir ao chute (item 27)
-    if (dToGoal < GK.dangerDist) comeOut = Math.min(comeOut, GK.dangerComeOut)
+    if (dToGoal < GK.dangerDist) {
+      // no 1v1 (adversário conduzindo de frente) um goleiro de oneOnOne alto ABAFA,
+      // avançando para fechar o ângulo em vez de esperar (itens 26, 34).
+      const cap =
+        s.controllerId !== null &&
+        s.players.find((pl) => pl.id === s.controllerId)?.team !== p.team
+          ? GK.dangerComeOut + nrm(p.attrs.oneOnOne) * GK.rushOneOnOne
+          : GK.dangerComeOut
+      comeOut = Math.min(comeOut, cap)
+    }
     // bola parada contra → cola na linha cobrindo o 1º pau (item 33)
     if (s.deadball > 0 && s.restartTeam && s.restartTeam !== p.team)
       comeOut = GK.comeOutMin
@@ -267,9 +473,16 @@ export const desiredTarget = (s: MatchState, p: Player): Vec2 => {
     )
   }
 
-  // Bola parada: o adversário do cobrador recua e mantém a formação.
-  if (s.deadball > 0 && s.restartTeam && p.team !== s.restartTeam) {
-    return homePos(p, dir)
+  // Pênalti: todos (menos o batedor e os goleiros, já tratados acima) aguardam
+  // onde foram posicionados — atrás da marca e fora da área — até a cobrança.
+  if (s.penalty && p.id !== s.controllerId) return p.pos
+
+  // Reinícios congelados: no TIRO DE META todos se reestruturam (Lei 16); nos
+  // demais reinícios, o adversário do cobrador recua e mantém a formação.
+  if (s.deadball > 0 && s.restartTeam) {
+    if (s.goalKick) return goalKickStation(s, p)
+    if (s.freeKick) return freeKickStation(s, p)
+    if (p.team !== s.restartTeam) return homePos(p, dir)
   }
 
   const chaser = nearestOfTeam(s, p.team, ball.pos)
@@ -285,6 +498,106 @@ export const desiredTarget = (s: MatchState, p: Player): Vec2 => {
     : defendTarget(s, p, home)
 }
 
+/**
+ * Melhor opção de passe do conduto: visão + progressão + companheiro livre + LANE
+ * limpa. Devolve o candidato escolhido (m, d, forward, lane, score) ou undefined.
+ */
+const bestPass = (s: MatchState, carrier: Player, fwd: number) =>
+  teammates(s, carrier.team)
+    .filter((m) => m.id !== carrier.id && m.role !== 'GK')
+    .map((m) => {
+      const d = dist(carrier.pos, m.pos)
+      const forward = (m.pos.x - carrier.pos.x) * fwd
+      const free = nearestOppDist(s, m)
+      const lane = laneClearance(s, carrier.pos, m.pos, carrier.team)
+      // offTheBall do RECEBEDOR: um bom movimentador que ataca espaço à frente
+      // vira uma opção PREFERIDA — o carrier "acha" quem faz a corrida certa.
+      const runFwd = Math.max(0, m.vel.x * fwd)
+      const optionPull = nrm(m.attrs.offTheBall) * runFwd * AI.offBallOption
+      // vision PONDERA a leitura: quem enxerga mais valoriza o passe que
+      // PROGRIDE e enfia em lane apertada (vê a opção difícil); quem enxerga
+      // pouco fica preso no toque seguro de lado. Não é mais bônus fixo (que
+      // não mudava a escolha) — agora reescala forward/lane por candidato.
+      const vis = nrm(carrier.attrs.vision)
+      // decisions PONDERA o risco: o decidido valoriza segurança (companheiro
+      // livre + lane limpa) e desconta o passe arriscado em lane apertada; o
+      // afobado supervaloriza enfiar pra frente sem ler o perigo.
+      const dec = nrm(carrier.attrs.decisions)
+      const risk = forward * Math.max(0, AI.laneSafe - lane) * AI.decisionRisk
+      const score =
+        forward * (0.6 + vis * AI.visionForward) +
+        free * (0.6 + dec * AI.decisionSafe) +
+        Math.min(lane, AI.laneSafe) * AI.laneWeight * (0.6 + vis * AI.visionLane) +
+        optionPull * (0.5 + vis * 0.5) -
+        risk * dec
+      return { m, d, forward, lane, score }
+    })
+    // descarta passes longos demais, para trás demais ou com a linha estrangulada
+    .filter(
+      (c) =>
+        c.d >= AI.passMin &&
+        c.d <= AI.passMax &&
+        c.forward > -4 &&
+        c.lane > AI.laneBlocked,
+    )
+    .sort((a, b) => b.score - a.score)[0]
+
+/**
+ * Cobrança de TIRO LIVRE (Lei 13). O que se faz com a bola PARADA depende de onde
+ * a falta foi:
+ *  1) DIRETO ao gol — perto e em ângulo: pancada firme (longShots), batida limpa
+ *     sem marcação (spread menor) e com efeito (curva por cima/ao lado da barreira);
+ *  2) LANÇAMENTO na área — avançado mas fechado: bola alçada para o cabeceio;
+ *  3) RECOMPOSIÇÃO — longe: toque para o companheiro mais bem posicionado.
+ */
+const freeKickAction = (s: MatchState, carrier: Player, dir: Dir, fwd: number): Action => {
+  const atkGx = attackingGoalX(dir)
+  const goalC = vec(atkGx, FIELD.cy)
+  const dGoal = dist(carrier.pos, goalC)
+  const central = Math.abs(carrier.pos.y - FIELD.cy) < FREEKICK.shootCone
+
+  // 1) CHUTE DIRETO: bola parada estende o alcance (batida sem pressão e firme)
+  const directRange = shootRangeOf(carrier.attrs, AI.shootRange) + FREEKICK.directRangeBonus
+  if (central && dGoal < directRange) {
+    const far = clamp((dGoal - 6) / 24, 0, 1)
+    const speed = shotSpeed(carrier.attrs)
+    const power = clamp((speed - SHOT.speedBase) / (SHOT.speedStrength + SHOT.speedFinishing), 0, 1)
+    return {
+      type: 'shoot',
+      target: withNoise(s, carrier.pos, aimShot(s, carrier, dir), shotSpread(carrier.attrs, far, false, power)),
+      speed,
+    }
+  }
+
+  // 2) LANÇAMENTO na área: avançado o bastante para alçar a bola no ataque
+  if (dGoal < FREEKICK.launchDist) {
+    const target = crossTarget(s, atkGx)
+    const a = arc(dist(carrier.pos, target), FREEKICK.launchPeak)
+    return {
+      type: 'pass',
+      target: withNoise(s, carrier.pos, target, crossSpread(carrier.attrs, false)),
+      speed: a.speed,
+      to: null,
+      loft: a.loft,
+    }
+  }
+
+  // 3) RECOMPOSIÇÃO: longe do gol, arma a jogada com um passe ao melhor apoio
+  const best = bestPass(s, carrier, fwd)
+  if (best) {
+    const speed = passSpeed(carrier.attrs)
+    return {
+      type: 'pass',
+      target: withNoise(s, carrier.pos, passLeadPoint(carrier, best.m, speed), passSpread(carrier.attrs, false)),
+      speed,
+      to: best.m,
+    }
+  }
+  // sem apoio: lançamento longo pra frente (sobe e cai no campo de ataque)
+  const a = arc(35, AIR.longBallPeak)
+  return { type: 'pass', target: vec(carrier.pos.x + fwd * 35, carrier.pos.y), speed: a.speed, to: null, loft: a.loft }
+}
+
 /** Decisão de quem está com a bola: conduzir, passar ou chutar. */
 export const decideAction = (s: MatchState, carrier: Player): Action => {
   const dir = s.attackDir[carrier.team]
@@ -293,25 +606,79 @@ export const decideAction = (s: MatchState, carrier: Player): Action => {
   const pressured = nearestOppDist(s, carrier) < AI.pressureDist
   const fwd = sign(dir)
 
+  // TIRO LIVRE (Lei 13): cobrança de falta fora da área — bate direto ao gol,
+  // lança na área ou recompõe a jogada conforme a posição (ver `freeKickAction`).
+  if (s.freeKick) return freeKickAction(s, carrier, dir, fwd)
+
+  // ARREMESSO LATERAL (Lei 15): o cobrador LANÇA COM A MÃO — bola AÉREA (arco) e de
+  // força limitada — buscando um COMPANHEIRO (nunca ele mesmo). O alcance cresce um
+  // pouco com a força (lateral longo), mas nunca chega à potência de um chute.
+  if (s.throwIn) {
+    const reach = THROW.reachBase + nrm(carrier.attrs.strength) * THROW.reachStrength
+    const mates = teammates(s, carrier.team).filter(
+      (m) => m.id !== carrier.id && m.role !== 'GK',
+    )
+    // prefere o companheiro mais LIVRE e um pouco à frente, dentro do alcance da mão
+    const pick = mates
+      .map((m) => ({ m, d: dist(carrier.pos, m.pos), free: nearestOppDist(s, m), fwd: (m.pos.x - carrier.pos.x) * fwd }))
+      .filter((c) => c.d >= THROW.minReach && c.d <= reach)
+      .sort((a, b) => b.free + b.fwd * 0.4 - (a.free + a.fwd * 0.4))[0]
+    // sem ninguém no alcance ideal → o companheiro mais próximo (jamais ele mesmo)
+    const to =
+      pick?.m ??
+      mates.reduce((b, m) => (dist(carrier.pos, m.pos) < dist(carrier.pos, b.pos) ? m : b))
+    const a = arc(dist(carrier.pos, to.pos), THROW.peak)
+    const target = withNoise(s, carrier.pos, passLeadPoint(carrier, to, a.speed), THROW.spread)
+    return { type: 'pass', target, speed: a.speed, to, loft: a.loft }
+  }
+
   // Goleiro: distribui conforme a situação (itens 45-49).
   if (carrier.role === 'GK') {
-    // chutão longo rumo ao meio-campo, mirando o cano de saída até o gol adversário
-    const longKick = (to: Player | null, panic = false) => {
-      const target = to
-        ? withNoise(s, carrier.pos, passLeadPoint(carrier, to, gkKickSpeed(carrier.attrs)), gkDistroSpread(carrier.attrs, true, panic))
-        : vec(carrier.pos.x + fwd * GK.goalKickReach, FIELD.cy)
-      return { type: 'pass' as const, target, speed: gkKickSpeed(carrier.attrs), to }
+    // chutão longo rumo ao meio-campo, mirando o cano de saída até o gol adversário.
+    // sai SEMPRE com ALTURA (arco): a bola sobe e cai lá na frente, por cima de
+    // todo mundo — é assim que o goleiro tira o tiro de meta e o alívio longo.
+    const longKick = (to: Player | null, peak: number, panic = false) => {
+      // com alvo, lidera o companheiro; sem alvo, MIRA A DIREÇÃO LIVRE (foge do atacante)
+      const aim = to
+        ? passLeadPoint(carrier, to, gkKickSpeed(carrier.attrs))
+        : gkClearTarget(s, carrier, fwd)
+      const a = arc(dist(carrier.pos, aim), peak)
+      const target = withNoise(s, carrier.pos, aim, gkDistroSpread(carrier.attrs, true, panic))
+      return { type: 'pass' as const, target, speed: a.speed, to, loft: a.loft }
     }
 
-    // TIRO DE META: nada de soltar a bola ou tocar curto — manda o CHUTÃO pra
-    // frente, buscando o companheiro mais avançado e livre (senão, ao meio-campo).
+    // TIRO DE META: cerca de metade vai no CHUTÃO pra frente (companheiro mais
+    // avançado e livre, senão ao meio-campo); a outra metade SAI JOGANDO curto num
+    // zagueiro/companheiro que abriu FORA da área. Sem saída curta segura, bate longo.
     if (s.goalKick) {
       const adv = teammates(s, carrier.team)
         .filter((m) => m.id !== carrier.id && m.role !== 'GK')
         .map((m) => ({ m, fwdness: (m.pos.x - carrier.pos.x) * fwd, free: nearestOppDist(s, m) }))
         .filter((c) => c.fwdness > GK.goalKickMinFwd && c.free > GK.goalKickFree)
         .sort((a, b) => b.fwdness + b.free - (a.fwdness + a.free))[0]
-      return longKick(adv?.m ?? null)
+
+      // saída curta segura: companheiro perto, bem livre e com a linha de passe limpa
+      const short = teammates(s, carrier.team)
+        .filter((m) => m.id !== carrier.id && m.role !== 'GK')
+        .map((m) => ({
+          m,
+          d: dist(carrier.pos, m.pos),
+          fwdness: (m.pos.x - carrier.pos.x) * fwd,
+          free: nearestOppDist(s, m),
+          lane: laneClearance(s, carrier.pos, m.pos, carrier.team),
+        }))
+        .filter((c) => c.d <= GK.shortMax && c.free > GK.shortFree && c.lane > GK.shortLane)
+        .sort((a, b) => b.free + b.fwdness * 0.3 - (a.free + a.fwdness * 0.3))[0]
+
+      if (rand(s) < GK.goalKickLongChance || !short)
+        return longKick(adv?.m ?? null, AIR.goalKickPeak)
+      const speed = gkThrowSpeed(carrier.attrs)
+      return {
+        type: 'pass',
+        target: withNoise(s, carrier.pos, passLeadPoint(carrier, short.m, speed), gkDistroSpread(carrier.attrs, false, false)),
+        speed,
+        to: short.m,
+      }
     }
 
     // BOLA EM JOGO: o REFLEXO manda — solta rápido, não fica dominando (gkHoldTime).
@@ -331,7 +698,7 @@ export const decideAction = (s: MatchState, carrier: Player): Action => {
       .sort((a, b) => b.fwdness + b.free - (a.fwdness + a.free))[0]
 
     // sob pressão OU sem saída curta segura → chutão longo; senão, toque curto seguro.
-    if (pressured || !mate) return longKick(mate?.m ?? null, pressured)
+    if (pressured || !mate) return longKick(mate?.m ?? null, AIR.longBallPeak, pressured)
     const target = withNoise(
       s, carrier.pos, passLeadPoint(carrier, mate.m, gkThrowSpeed(carrier.attrs)), gkDistroSpread(carrier.attrs, false, pressured),
     )
@@ -345,53 +712,69 @@ export const decideAction = (s: MatchState, carrier: Player): Action => {
     Math.abs(carrier.pos.x - atkGx) < RESTART.cornerZone &&
     (carrier.pos.y < RESTART.cornerZone || carrier.pos.y > FIELD.h - RESTART.cornerZone)
   if (inCorner) {
-    const into = atkGx === 0 ? 1 : -1
-    const reach = RESTART.crossNear + rand(s) * (RESTART.crossFar - RESTART.crossNear)
-    const target = vec(atkGx + into * reach, FIELD.cy + (rand(s) - 0.5) * GOAL.width)
-    return {
-      type: 'pass',
-      target: withNoise(s, carrier.pos, target, crossSpread(carrier.attrs)),
-      speed: crossSpeed(carrier.attrs),
-      to: null,
-    }
+    return crossAction(s, carrier, crossTarget(s, atkGx), pressured)
   }
 
+  // CONDUÇÃO com espaço: livre de marcação e com a FRENTE aberta, o jogador
+  // CARREGA a bola (drible em velocidade) rumo ao gol em vez de bater de primeira.
+  // Quanto melhor o drible, mais aperto ele topa encarar. Só larga a bola quando
+  // fecham o espaço (pressão) ou quando já chegou perto o bastante para finalizar.
+  const room = forwardSpace(s, carrier, fwd)
+  const canCarry =
+    !pressured && room > AI.carryRoom * (1.3 - nrm(carrier.attrs.dribbling) * 0.6)
+
   // Dentro do alcance (escalado pela finalização) E em ângulo razoável → chuta.
-  const central = Math.abs(carrier.pos.y - FIELD.cy) < AI.shootCone
-  if (central && dGoal < shootRangeOf(carrier.attrs, AI.shootRange)) {
+  // decisions: o decidido só arrisca em ângulo bom; o afobado tenta de posições
+  // piores (cone mais largo → finalizações de menor qualidade). De LONGE, porém,
+  // com espaço para conduzir, encurta a distância antes de bater (não martela de fora).
+  const cone = AI.shootCone * (1.3 - nrm(carrier.attrs.decisions) * 0.6)
+  const central = Math.abs(carrier.pos.y - FIELD.cy) < cone
+  const inShotRange = central && dGoal < shootRangeOf(carrier.attrs, AI.shootRange)
+  if (inShotRange && (!canCarry || dGoal < AI.carryShootDist)) {
     // far 0..1 conforme a distância: perto pesa finishing, longe pesa longShots
     const far = clamp((dGoal - 6) / 24, 0, 1)
+    const speed = shotSpeed(carrier.attrs)
+    // potência 0..1 sobre a faixa do chute (base..máx) — bater forte custa mira
+    const power = clamp((speed - SHOT.speedBase) / (SHOT.speedStrength + SHOT.speedFinishing), 0, 1)
     return {
       type: 'shoot',
-      target: withNoise(s, carrier.pos, aimShot(s, carrier, dir), shotSpread(carrier.attrs, far, pressured)),
-      speed: shotSpeed(carrier.attrs),
+      target: withNoise(s, carrier.pos, aimShot(s, carrier, dir), shotSpread(carrier.attrs, far, pressured, power)),
+      speed,
     }
   }
 
   // Melhor opção de passe — visão + progressão + companheiro livre + LANE limpa.
-  const best = teammates(s, carrier.team)
-    .filter((m) => m.id !== carrier.id && m.role !== 'GK')
-    .map((m) => {
-      const d = dist(carrier.pos, m.pos)
-      const forward = (m.pos.x - carrier.pos.x) * fwd
-      const free = nearestOppDist(s, m)
-      const lane = laneClearance(s, carrier.pos, m.pos, carrier.team)
-      const score =
-        forward +
-        free * 0.6 +
-        Math.min(lane, AI.laneSafe) * AI.laneWeight +
-        nrm(carrier.attrs.vision) * 4
-      return { m, d, forward, lane, score }
-    })
-    // descarta passes longos demais, para trás demais ou com a linha estrangulada
-    .filter(
-      (c) =>
-        c.d >= AI.passMin &&
-        c.d <= AI.passMax &&
-        c.forward > -4 &&
-        c.lane > AI.laneBlocked,
-    )
-    .sort((a, b) => b.score - a.score)[0]
+  const best = bestPass(s, carrier, fwd)
+
+  // CRUZAMENTO da PONTA (bola em jogo): aberto na ponta e perto da linha de fundo de
+  // ATAQUE, o instinto é jogar na área (analogia ao escanteio). Cruza ao CHEGAR na
+  // linha de fundo, sob PRESSÃO ou após SEGURAR demais; senão segue conduzindo (jogada
+  // individual) para ganhar a linha. De vez em quando troca o cruzamento por um passe.
+  const onWing = Math.abs(carrier.pos.y - FIELD.cy) > AI.crossZoneWide
+  const inCrossZone = onWing && Math.abs(carrier.pos.x - atkGx) < AI.crossZoneDepth
+  if (inCrossZone) {
+    const atByline =
+      Math.abs(carrier.pos.x - atkGx) < AI.crossBylineDepth || room < AI.crossBylineRoom
+    if (atByline || pressured || s.holdTime > holdMax(carrier.attrs)) {
+      // variação: às vezes constrói com um passe em vez de cruzar (jogada armada/recuo)
+      if (best && rand(s) < AI.crossPassChance) {
+        const speed = passSpeed(carrier.attrs)
+        return {
+          type: 'pass',
+          target: withNoise(s, carrier.pos, passLeadPoint(carrier, best.m, speed), passSpread(carrier.attrs, pressured)),
+          speed,
+          to: best.m,
+        }
+      }
+      return crossAction(s, carrier, crossTarget(s, atkGx), pressured)
+    }
+    // ainda com espaço e sem pressão → conduz para a linha de fundo (jogada individual)
+    return { type: 'dribble' }
+  }
+
+  // frente aberta e sem pressão → CONDUZ a bola rumo ao gol (drible em velocidade),
+  // encurtando a distância antes de decidir o passe ou o chute.
+  if (canCarry) return { type: 'dribble' }
 
   // decisions: jogador decidido segura menos a bola antes de passar
   if (pressured || s.holdTime > holdMax(carrier.attrs)) {
@@ -399,9 +782,11 @@ export const decideAction = (s: MatchState, carrier: Player): Action => {
       // das pontas, bola enfiada/cruzada para frente usa o cruzamento (crossing);
       // caso contrário, é um passe normal (passing).
       const wide = Math.abs(carrier.pos.y - FIELD.cy) > FIELD.h * 0.3
-      const useCross = wide && best.forward > 8
+      // quem cruza bem ARRISCA o cruzamento de mais longe; o fraco prefere o chão
+      const crossFwdGate = AI.crossFwdBase - nrm(carrier.attrs.crossing) * AI.crossFwdSkill
+      const useCross = wide && best.forward > crossFwdGate
       const speed = useCross ? crossSpeed(carrier.attrs) : passSpeed(carrier.attrs)
-      const spr = useCross ? crossSpread(carrier.attrs) : passSpread(carrier.attrs)
+      const spr = useCross ? crossSpread(carrier.attrs, pressured) : passSpread(carrier.attrs, pressured)
       return {
         type: 'pass',
         target: withNoise(s, carrier.pos, passLeadPoint(carrier, best.m, speed), spr),
@@ -409,12 +794,15 @@ export const decideAction = (s: MatchState, carrier: Player): Action => {
         to: best.m,
       }
     }
-    // sem opção: chutão para frente
+    // sem opção: chutão para frente, ALÇADO (sobe e cai lá na frente, sem servir
+    // o adversário no chão) — é o alívio "joga pra cima e corre atrás".
+    const a = arc(30, AIR.longBallPeak)
     return {
       type: 'pass',
       target: vec(carrier.pos.x + fwd * 30, carrier.pos.y),
-      speed: passSpeed(carrier.attrs),
+      speed: a.speed,
       to: null,
+      loft: a.loft,
     }
   }
 

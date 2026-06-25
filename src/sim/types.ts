@@ -96,8 +96,16 @@ export interface Player {
 export interface Ball {
   pos: Vec2
   vel: Vec2
+  /** ALTURA da bola acima do gramado (m) — 0 = rolando no chão, >0 = no ar.
+   *  Só quem alcança a bola na sua altura pode tocá-la: bola alta passa por
+   *  cima dos botões (lançamentos, cruzamentos, escanteios, tiro de meta). */
+  z: number
+  /** velocidade vertical (m/s) — sobe (>0) e cai pela gravidade até quicar */
+  vz: number
   /** posição no passo anterior — usada para interpolar o render */
   prevPos: Vec2
+  /** altura no passo anterior — interpola o render do "voo" da bola */
+  prevZ: number
   /** efeito lateral (m/s²) aplicado perpendicular à direção — curva à la Magnus */
   spin: number
   /** ângulo de rolagem acumulado (rad) — só para o giro visual da bola */
@@ -115,6 +123,7 @@ export type EventType =
   | 'kickoff'
   | 'goalkick'
   | 'corner'
+  | 'penalty'
   | 'fulltime'
 
 export interface MatchEvent {
@@ -129,12 +138,20 @@ export interface TeamStats {
   shotsOnTarget: number
   fouls: number
   yellows: number
+  /** expulsões (cartões vermelhos) sofridas por este time */
+  reds: number
   tackles: number
   possessionTicks: number
   /** defesas do goleiro deste time */
   saves: number
   /** rebotes/espalmadas dados pelo goleiro (bola viva) */
   rebounds: number
+  /** arremessos laterais a favor deste time */
+  throwIns: number
+  /** tiros de meta a favor deste time */
+  goalKicks: number
+  /** escanteios a favor deste time */
+  corners: number
 }
 
 export type MatchStatus = 'play' | 'over'
@@ -184,10 +201,27 @@ export interface MatchState {
   tackleCooldown: number
   /** congela a jogada por X segundos (cobrança de falta / lateral) */
   deadball: number
+  /** bola saiu pela linha de fundo: segundos que ela AINDA rola antes do reinício
+   *  (deixa claro que saiu, em vez de teletransportar direto para o tiro de meta) */
+  outOfPlay: number
+  /** linha de fundo (0 ou FIELD.w) por onde a bola saiu — define o reinício pendente */
+  pendingGoalLineX: number | null
+  /** tempo (s) já aguardado no tiro de meta pela área esvaziar (teto goalKickMaxWait) */
+  goalKickWait: number
   /** time que reinicia a jogada parada (o adversário recua) */
   restartTeam: TeamId | null
   /** o reinício atual é um TIRO DE META → o goleiro chuta longo (chutão), não toca curto */
   goalKick: boolean
+  /** o reinício atual é um ARREMESSO LATERAL → o cobrador lança com a MÃO (bola
+   *  aérea, força limitada) buscando um companheiro; nunca arremessa para si mesmo */
+  throwIn: boolean
+  /** o reinício atual é um TIRO LIVRE (falta fora da área) → o cobrador bate
+   *  DIRETO ao gol, LANÇA na área ou recompõe, e a defesa arma a barreira (Lei 13) */
+  freeKick: boolean
+  /** cobrança de pênalti em andamento → todos aguardam fora da área até o chute */
+  penalty: boolean
+  /** acréscimos do tempo atual (s de jogo), somados por gol/falta/cartão; zera a cada tempo */
+  stoppage: number
   /** último jogador a finalizar (para narrar o gol) */
   lastShooterId: number | null
   /** distância (m) do último chute ao gol — rotula golaço de longe */

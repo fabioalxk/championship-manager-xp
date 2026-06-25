@@ -8,23 +8,39 @@ import type {
   Vec2,
 } from './types'
 import {
+  ADVANTAGE,
+  AI,
+  AIR,
+  AREA,
+  CARD,
   CELEBRATION,
   COLLIDE,
   CONTROL,
   DRIBBLE,
   DUEL,
   FIELD,
+  FREEKICK,
   GK,
   GOAL,
+  HEAD,
   KICKOFF,
   MATCH,
   MOVE,
+  PEN,
   PHYS,
   RESTART,
+  SHOT,
   STAMINA,
+  STOPPAGE,
 } from './constants'
 import { TEAMS } from './teams'
-import { buildPlayers, attackingGoalX, defendingGoalX, homePos } from './formation'
+import {
+  buildPlayers,
+  attackingGoalX,
+  defendingGoalX,
+  homePos,
+  inPenaltyArea,
+} from './formation'
 import { decideAction, desiredTarget, engagement } from './ai'
 import {
   aerialPower,
@@ -32,6 +48,7 @@ import {
   controlReach,
   dribbleSpeedMul,
   flairSpin,
+  footing,
   gkHoldChance,
   gkMaxSpeed,
   gkReach,
@@ -79,11 +96,20 @@ const emptyStats = (): TeamStats => ({
   shotsOnTarget: 0,
   fouls: 0,
   yellows: 0,
+  reds: 0,
   tackles: 0,
   possessionTicks: 0,
   saves: 0,
   rebounds: 0,
+  throwIns: 0,
+  goalKicks: 0,
+  corners: 0,
 })
+
+/** Soma acréscimos (s de jogo) ao tempo atual, respeitando o teto. */
+const addStoppage = (s: MatchState, sec: number) => {
+  s.stoppage = Math.min(STOPPAGE.max, s.stoppage + sec)
+}
 
 /** Minuto de jogo atual (1..90), para os eventos. */
 const minute = (s: MatchState): number =>
@@ -106,7 +132,10 @@ export const createMatch = (): MatchState => {
     ball: {
       pos: vec(FIELD.cx, FIELD.cy),
       vel: vec(0, 0),
+      z: 0,
+      vz: 0,
       prevPos: vec(FIELD.cx, FIELD.cy),
+      prevZ: 0,
       spin: 0,
       roll: 0,
     },
@@ -116,8 +145,15 @@ export const createMatch = (): MatchState => {
     kickCooldown: 0,
     tackleCooldown: 0,
     deadball: 0,
+    outOfPlay: 0,
+    pendingGoalLineX: null,
+    goalKickWait: 0,
     restartTeam: null,
     goalKick: false,
+    throwIn: false,
+    freeKick: false,
+    penalty: false,
+    stoppage: 0,
     lastShooterId: null,
     lastShotDist: 0,
     lastPasserId: null,
@@ -180,17 +216,25 @@ const kickoff = (s: MatchState, kicking: TeamId) => {
   // 3) bola no centro, nos pés do batedor; o time que sai fica com a posse.
   s.ball.pos = { ...center }
   s.ball.vel = vec(0, 0)
+  s.ball.z = 0
+  s.ball.vz = 0
   s.ball.prevPos = { ...s.ball.pos }
+  s.ball.prevZ = 0
   s.ball.spin = 0
   s.possession = kicking
   s.controllerId = taker.id
   s.lastTouchId = taker.id
   s.restartTeam = kicking
   s.goalKick = false
+  s.throwIn = false
+  s.freeKick = false
+  s.penalty = false
   s.holdTime = 0
   s.kickCooldown = 0
   s.tackleCooldown = KICKOFF.deadball + DUEL.cooldown
   s.deadball = KICKOFF.deadball
+  s.outOfPlay = 0 // qualquer saída de bola pendente é cancelada pelo recomeço
+  s.pendingGoalLineX = null
   s.lastPasserId = null // recomeço zera a cadeia de assistência
 }
 
@@ -328,23 +372,46 @@ const separate = (s: MatchState) => {
  * - goleiro: alcance-base que se estende no mergulho (chute forte) e abraça
  *   bolas altas/cruzamentos conforme aerialReach.
  */
-const gainReach = (p: Player, ballSpeed: number): number => {
+const gainReach = (p: Player, ballSpeed: number, airborne: boolean): number => {
   if (p.role !== 'GK') return controlReach(p.attrs, ballSpeed)
-  const dive = clamp((ballSpeed - GK.controlSpeed) * GK.diveSpeedScale, 0, GK.diveMax)
-  const aerial = ballSpeed > CONTROL.loftSpeed ? nrm(p.attrs.aerialReach) * GK.aerialClaim : 0
+  // o mergulho no chute forte estica mais quem tem REFLEXO (vai mais longe no susto)
+  const dive =
+    clamp((ballSpeed - GK.controlSpeed) * GK.diveSpeedScale, 0, GK.diveMax) *
+    (GK.diveReflexFloor + nrm(p.attrs.reflexes) * GK.diveReflexSkill)
+  const aerial = airborne ? nrm(p.attrs.aerialReach) * GK.aerialClaim : 0
   return gkReach(p.attrs) + dive + aerial
 }
 
-/** Candidato mais próximo da bola dentro do seu alcance (ou null). */
+/**
+ * Altura (m) que o jogador alcança a bola: jogador de linha sobe à cabeça (+ o
+ * extra da competência aérea); o goleiro chega mais alto com mãos/salto
+ * (+ aerialReach). Bola ACIMA disso é intocável — passa por cima do botão.
+ */
+const reachHeightOf = (p: Player): number =>
+  p.role === 'GK'
+    ? AIR.gkReachHeight + nrm(p.attrs.aerialReach) * AIR.gkReachAerial
+    : AIR.reachHeight + aerialPower(p.attrs) * AIR.reachAerial
+
+/** Candidato à bola: o mais próximo dentro do alcance — e que a alcance NA SUA
+ *  ALTURA (bola alta passa por cima). Na bola no AR, a competência aérea
+ *  (jumping/heading) "encurta" a distância efetiva: quem salta/cabeceia melhor
+ *  ganha a dividida mesmo um pouco mais longe. */
 const ballCandidate = (s: MatchState, team?: TeamId): Player | null => {
   const ballSpeed = len(s.ball.vel)
+  const airborne = s.ball.z > AIR.groundBand
   let best: Player | null = null
   let bestScore = Infinity
   for (const p of s.players) {
     if (team && p.team !== team) continue
+    if (s.ball.z > reachHeightOf(p)) continue // bola acima do alcance: voa por cima
     const d = dist(p.pos, s.ball.pos)
-    if (d < gainReach(p, ballSpeed) && d < bestScore) {
-      bestScore = d
+    if (d >= gainReach(p, ballSpeed, airborne)) continue
+    // disputa aérea: o mais forte no alto rouba metros à distância efetiva
+    const score = airborne && p.role !== 'GK'
+      ? d - aerialPower(p.attrs) * CONTROL.aerialDuelEdge
+      : d
+    if (score < bestScore) {
+      bestScore = score
       best = p
     }
   }
@@ -381,6 +448,7 @@ const gkChargeFoul = (s: MatchState, gk: Player) => {
   s.tackleCooldown = DUEL.cooldown
   if (rand(s) >= GK.chargeFoulChance * nrm(att.attrs.aggression)) return
   s.stats[att.team].fouls++
+  addStoppage(s, STOPPAGE.perFoul)
   s.deadball = DUEL.deadball
   s.possession = gk.team
   s.restartTeam = gk.team
@@ -399,14 +467,27 @@ const tryTackle = (s: MatchState) => {
   if (!def || dist(def.pos, s.ball.pos) > tackleRange(def.attrs)) return
   s.tackleCooldown = DUEL.cooldown
 
+  // DRIBLE 1v1: antes do duelo de força, o conduto pode PASSAR pelo marcador —
+  // drible+agilidade desequilibram o defensor, que morde e erra; ler bem o lance
+  // (anticipation/positioning) é o que evita ser passado. Beat-the-man de verdade.
+  const beat = nrm(carrier.attrs.dribbling) * 0.6 + nrm(carrier.attrs.agility) * 0.4
+  const read = nrm(def.attrs.anticipation) * 0.5 + nrm(def.attrs.positioning) * 0.5
+  const beatProb = clamp(DUEL.beatBase + (beat - read) * DUEL.beatSwing, 0, DUEL.beatCap)
+  if (rand(s) < beatProb) {
+    s.tackleCooldown = DUEL.cooldown * 2
+    return
+  }
+
   const defR = tacklePower(def.attrs)
   const attR = carryPower(carrier.attrs)
-  const winProb = clamp(DUEL.baseWin + (defR - attR) * 0.9, 0.12, 0.9)
+  // bote mais bravo é mais comprometido: ganha mais a bola quando acerta
+  const commit = 1 + nrm(def.attrs.bravery) * DUEL.braveryCommit
+  const winProb = clamp(DUEL.baseWin + (defR - attR) * DUEL.duelSwing * commit, 0.12, 0.92)
 
   if (rand(s) < winProb) {
     // desarme limpo — defensor fica com a bola; o atacante pode tropeçar, menos
     // se tiver bom equilíbrio (balance).
-    const stagger = DUEL.staggerChance * (1 - knockResist(carrier.attrs) * 0.6)
+    const stagger = DUEL.staggerChance * (1 - footing(carrier.attrs) * 0.6)
     if (rand(s) < stagger) carrier.stun = DUEL.staggerStun
     s.controllerId = def.id
     s.possession = def.team
@@ -417,29 +498,171 @@ const tryTackle = (s: MatchState) => {
     return
   }
 
-  // desarme falhou — pode ter sido falta (carrinho)
-  const foulProb = 0.12 + nrm(def.attrs.aggression) * 0.4
-  if (rand(s) < foulProb) {
-    s.stats[def.team].fouls++
-    s.deadball = DUEL.deadball
-    s.ball.pos = { ...carrier.pos }
-    s.ball.vel = vec(0, 0)
-    s.possession = carrier.team
-    s.restartTeam = carrier.team
-    // levou o carrinho: cai e fica no chão menos tempo se tiver equilíbrio
-    carrier.stun = DUEL.foulStun * (1 - knockResist(carrier.attrs) * 0.4)
-    s.controllerId = null
-    s.holdTime = 0
+  // desarme falhou — pode ter sido falta. O risco cresce com a AGRESSIVIDADE e
+  // com o quanto o zagueiro teve de se ESTICAR (overreach); ler bem o lance
+  // (positioning/anticipation) deixa o bote mais limpo.
+  const reachOut = clamp(dist(def.pos, s.ball.pos) / tackleRange(def.attrs), 0, 1)
+  const cleanCut = nrm(def.attrs.positioning) * 0.5 + nrm(def.attrs.anticipation) * 0.5
+  const foulProb =
+    DUEL.foulBase +
+    nrm(def.attrs.aggression) * DUEL.foulAggr +
+    reachOut *
+      (DUEL.foulOverreach + nrm(def.attrs.bravery) * DUEL.foulBravery) *
+      (1 - cleanCut * DUEL.foulClean)
+  if (rand(s) < foulProb) commitFoul(s, def, carrier)
+}
 
-    // cartão amarelo conforme a agressividade
-    const cardProb = 0.1 + nrm(def.attrs.aggression) * 0.22
-    if (rand(s) < cardProb) {
-      def.yellow = true
-      s.stats[def.team].yellows++
-      addEvent(s, 'card', def.team, `🟨 ${def.name} (${TEAMS[def.team].name}) — amarelo`)
-    }
-    addEvent(s, 'foul', def.team, `Falta de ${def.name} sobre ${carrier.name}`)
+/**
+ * Expulsa um jogador (Lei 12): some do campo (o time segue com um a menos) e
+ * limpa qualquer referência pendente a ele, para não quebrar buscas por id.
+ * O goleiro não é expulso neste modelo (sem reservas para substituí-lo).
+ */
+const sendOff = (s: MatchState, p: Player, reason: string) => {
+  s.stats[p.team].reds++
+  addStoppage(s, STOPPAGE.perCard)
+  addEvent(s, 'card', p.team, `🟥 ${p.name} (${TEAMS[p.team].name}) — EXPULSO (${reason})`)
+  if (s.controllerId === p.id) s.controllerId = null
+  if (s.lastTouchId === p.id) s.lastTouchId = null
+  if (s.lastPasserId === p.id) s.lastPasserId = null
+  if (s.lastShooterId === p.id) s.lastShooterId = null
+  s.players = s.players.filter((q) => q.id !== p.id)
+}
+
+/** Decide e aplica o cartão de uma falta: amarelo, 2º amarelo ou vermelho direto. */
+const applyCard = (s: MatchState, def: Player, penalty: boolean) => {
+  const prob =
+    CARD.base + nrm(def.attrs.aggression) * CARD.aggressionWeight + (penalty ? CARD.penaltyBonus : 0)
+  if (rand(s) >= prob) return
+  // o goleiro recebe no máximo amarelo (não há reserva para expulsá-lo). A
+  // AGRESSIVIDADE pesa no vermelho DIRETO: o jogador nervoso entra mais feio.
+  const redFrac = CARD.straightRedFrac * (1 + nrm(def.attrs.aggression) * CARD.straightRedAggr)
+  if (def.role !== 'GK' && (rand(s) < redFrac || def.yellow))
+    return sendOff(s, def, def.yellow ? '2º amarelo' : 'falta grave')
+  def.yellow = true
+  s.stats[def.team].yellows++
+  addStoppage(s, STOPPAGE.perCard)
+  addEvent(s, 'card', def.team, `🟨 ${def.name} (${TEAMS[def.team].name}) — amarelo`)
+}
+
+/**
+ * Resolve uma falta: conta a falta e o cartão; se foi DENTRO da própria área do
+ * infrator vira PÊNALTI; senão, aplica a LEI DA VANTAGEM (segue o jogo) ou marca
+ * o tiro livre no ponto da falta.
+ */
+const commitFoul = (s: MatchState, def: Player, carrier: Player) => {
+  s.stats[def.team].fouls++
+  addStoppage(s, STOPPAGE.perFoul)
+
+  const ownGoalX = defendingGoalX(s.attackDir[def.team])
+  const penalty = inPenaltyArea(carrier.pos, ownGoalX)
+  applyCard(s, def, penalty)
+
+  // vantagem: falta no campo de ataque e o atacante seguiria com a bola
+  const fwd = s.attackDir[carrier.team]
+  const inAttackingHalf = (carrier.pos.x - FIELD.cx) * fwd > 0
+  if (!penalty && inAttackingHalf && rand(s) < ADVANTAGE.chance) {
+    addEvent(s, 'foul', def.team, `Falta de ${def.name} — vantagem, ${TEAMS[carrier.team].name} segue!`)
+    return // jogo continua: o atacante mantém a posse, sem bola parada
   }
+
+  // marca a falta: o atacante caído fica no chão (foulStun) — a jogada para e
+  // vira TIRO LIVRE no ponto da falta (Lei 13). Dentro da área, é pênalti.
+  carrier.stun = DUEL.foulStun * (1 - knockResist(carrier.attrs) * 0.4)
+  s.controllerId = null
+  s.holdTime = 0
+
+  if (penalty) return penaltyKick(s, carrier.team, ownGoalX)
+
+  addEvent(s, 'foul', def.team, `Falta de ${def.name} sobre ${carrier.name}`)
+  setupFreeKick(s, carrier.team, { ...carrier.pos })
+}
+
+/** Avaliação do batedor de falta: chuta de longe (longShots), finaliza e bate firme (technique). */
+const placedKickRating = (p: Player): number =>
+  nrm(p.attrs.longShots) * 0.5 + nrm(p.attrs.finishing) * 0.3 + nrm(p.attrs.technique) * 0.2
+
+/**
+ * Arma um TIRO LIVRE (Lei 13) no `spot` para `team`. Diferente de um deadball
+ * qualquer: numa falta perigosa e central o batedor é o MELHOR cobrador (bate
+ * direto/lança), senão é o companheiro mais próximo; e a barreira da defesa se
+ * forma sozinha em `desiredTarget`. O que se FAZ com a bola (chute direto,
+ * lançamento na área ou recomposição) é decidido em `decideAction`.
+ */
+const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2) => {
+  const atkGx = attackingGoalX(s.attackDir[team])
+  const dGoal = dist(spot, vec(atkGx, FIELD.cy))
+  const central = Math.abs(spot.y - FIELD.cy) < FREEKICK.shootCone
+  const dangerous = dGoal < FREEKICK.dangerDist
+
+  // o cobrador (jamais o jogador caído na falta): em posição de pancada direta,
+  // o melhor batedor assume; senão, o companheiro de linha mais próximo da bola.
+  const eligible = s.players.filter((p) => p.team === team && p.role !== 'GK' && p.stun <= 0)
+  const pool = eligible.length
+    ? eligible
+    : s.players.filter((p) => p.team === team && p.role !== 'GK')
+  const taker =
+    dangerous && central
+      ? pool.reduce((b, p) => (placedKickRating(p) > placedKickRating(b) ? p : b))
+      : pool.reduce((b, p) => (dist(p.pos, spot) < dist(b.pos, spot) ? p : b))
+
+  placeTaker(taker, spot)
+  // falta perigosa congela mais: a barreira se forma e o ataque carrega a área
+  placeDeadBall(s, taker, team, dangerous ? FREEKICK.deadballDanger : FREEKICK.deadball)
+  s.freeKick = true
+}
+
+/**
+ * Cobrança de pênalti (Lei 14): bola na marca, o melhor finalizador cobra, o
+ * goleiro adversário fica na linha e TODOS os demais aguardam atrás da marca,
+ * fora da grande área, até o chute (ver o trava em `desiredTarget`).
+ */
+const penaltyKick = (s: MatchState, team: TeamId, goalX: number) => {
+  const spotX = goalX === 0 ? AREA.penaltySpot : FIELD.w - AREA.penaltySpot
+  const spot = vec(spotX, FIELD.cy)
+  const outfield = s.players.filter((p) => p.team === team && p.role !== 'GK')
+  const taker = outfield.reduce((b, p) => (p.attrs.finishing > b.attrs.finishing ? p : b))
+
+  const into = goalX === 0 ? 1 : -1 // sentido para dentro do campo
+  const edgeX = goalX === 0 ? AREA.penaltyDepth : FIELD.w - AREA.penaltyDepth
+  let k = 0
+  for (const p of s.players) {
+    if (p.id === taker.id) {
+      placeTaker(p, { ...spot })
+      continue
+    }
+    if (p.role === 'GK') {
+      // o goleiro que defende cola na linha; o outro fica no próprio gol
+      placeTaker(p, p.team === team ? homePos(p, s.attackDir[p.team]) : vec(goalX, FIELD.cy))
+      continue
+    }
+    // demais: atrás da marca e fora da grande área, espalhados na entrada dela
+    const lane = edgeX + into * (PEN.waitBack + (k % 2) * 1.6)
+    const yy = clamp(FIELD.cy + ((k % 8) - 3.5) * PEN.waitSpread, 4, FIELD.h - 4)
+    placeTaker(p, vec(lane, yy))
+    k++
+  }
+
+  s.ball.pos = { ...spot }
+  s.ball.prevPos = { ...spot }
+  s.ball.prevZ = 0
+  s.ball.vel = vec(0, 0)
+  s.ball.z = 0
+  s.ball.vz = 0
+  s.ball.spin = 0
+  s.possession = team
+  s.controllerId = taker.id
+  s.lastTouchId = taker.id
+  s.restartTeam = team
+  s.goalKick = false
+  s.throwIn = false
+  s.freeKick = false
+  s.penalty = true
+  s.holdTime = 0
+  s.kickCooldown = 0
+  s.tackleCooldown = PEN.deadball + DUEL.cooldown
+  s.deadball = PEN.deadball
+  s.lastPasserId = null
+  addEvent(s, 'penalty', team, `Pênalti para ${TEAMS[team].name}! ${taker.name} vai cobrar`)
 }
 
 /** Goleiro garante a posse e abre janela protegida para distribuir (item 43). */
@@ -456,10 +679,17 @@ const gkGrab = (s: MatchState, gk: Player) => {
 const spillBall = (s: MatchState, gk: Player) => {
   const dir = s.attackDir[gk.team]
   const away = defendingGoalX(dir) === 0 ? 1 : -1 // sentido para longe do próprio gol
-  const ang = (rand(s) - 0.5) * 1.6 // espalha para os lados
+  // handling decide a QUALIDADE do espalmar: bom goleiro joga para o lado (longe
+  // do meio do gol); o fraco solta no centro, para o perigo.
+  const side = gk.pos.y >= FIELD.cy ? 1 : -1 // espalma para a banda mais próxima
+  const scatter = (rand(s) - 0.5) * 1.6
+  const bias = nrm(gk.attrs.handling) * GK.spillWide * (Math.PI / 2) * side
+  const ang = scatter * (1 - nrm(gk.attrs.handling) * GK.spillWide) + bias
   s.ball.pos = { ...gk.pos }
   s.ball.vel = vec(Math.cos(ang) * away * GK.spillSpeed, Math.sin(ang) * GK.spillSpeed)
   s.ball.spin = 0
+  s.ball.z = 0 // espalmada rola pelo chão
+  s.ball.vz = 0
   s.controllerId = null
   s.possession = null
   s.lastTouchId = gk.id
@@ -501,6 +731,9 @@ const saveProbability = (s: MatchState, gk: Player, speed: number): number => {
   }
   // 5. fadiga reduz a defesa no fim do jogo (item 22)
   p -= (1 - gk.energy) * GK.saveFatiguePen
+  // 6. comando de área (communication): um goleiro que organiza a defesa força
+  //    o atacante a finalizar de pior ângulo/posição — defesa mais sólida.
+  p += nrm(a.communication) * GK.commandSave
   return clamp(p, GK.saveFloor, GK.saveCap)
 }
 
@@ -511,10 +744,40 @@ const tryGainLoose = (s: MatchState) => {
   if (!cand) return
 
   if (cand.role === 'GK') {
+    // o goleiro só usa as MÃOS dentro da própria grande área (Lei 12); fora dela
+    // é um jogador de linha qualquer — controla a bola com os pés.
+    if (!inPenaltyArea(s.ball.pos, defendingGoalX(s.attackDir[cand.team])))
+      return controlLoose(s, cand)
     const a = cand.attrs
     const speed = len(s.ball.vel)
-    // bola lenta (recuo/passe atrás): domina sem disputa, mas pode dar "frango" (item 24)
-    if (speed <= GK.controlSpeed) {
+
+    // CRUZAMENTO/ESCANTEIO: bola alta cruzando a área SEM ir no gol → o goleiro
+    // SAI e DOMINA O ALTO (aerialReach): goleiro alto manda na área. Evita contar
+    // como "defesa" de chute o que é, na verdade, abafar um cruzamento.
+    const gx = defendingGoalX(s.attackDir[cand.team])
+    const airborne = s.ball.z > AIR.groundBand
+    const onTarget = Math.abs(ballCrossY(s, gx) - FIELD.cy) < GOAL.width / 2
+    if (airborne && !onTarget) {
+      const claim = clamp(
+        GK.claimBase + nrm(a.aerialReach) * GK.claimSkill - speed * GK.claimSpeedPen,
+        GK.claimFloor,
+        GK.claimCap,
+      )
+      if (rand(s) < claim) {
+        addEvent(s, 'save', cand.team, `${cand.name} sai e abafa o cruzamento!`)
+        // cravou no alto: SEGURA se as mãos seguram; senão, SOCA para longe (punho)
+        return rand(s) < gkHoldChance(a, speed) ? gkGrab(s, cand) : spillBall(s, cand)
+      }
+      // não cravou: aerialReach baixo deixa a bola passar / dá rebote no soco
+      const drop = (1 - nrm(a.aerialReach)) * GK.fumbleScale * GK.aerialDropScale
+      if (rand(s) < drop) return spillBall(s, cand)
+      s.kickCooldown = 0.3 // não chegou na bola — segue viva (área ainda perigosa)
+      return
+    }
+
+    // bola RASTEIRA lenta (recuo/passe atrás): domina sem disputa, mas pode dar
+    // "frango" (item 24). Bola no ar não cai aqui — vira abafamento ou defesa.
+    if (!airborne && speed <= GK.controlSpeed) {
       const fumble = (1 - nrm(a.handling)) * (1 - nrm(a.composure)) * GK.fumbleScale
       if (rand(s) < fumble) return spillBall(s, cand)
       return gkGrab(s, cand)
@@ -536,8 +799,121 @@ const tryGainLoose = (s: MatchState) => {
     s.kickCooldown = 0.3 // não re-rola a defesa; a bola segue (talvez gol)
     return
   }
-  // jogador de linha: domina a bola, mas pode errar o primeiro toque e a bola
-  // escapar à frente — pior cansado e sem firstTouch/composure/concentração.
+  const dir = s.attackDir[cand.team]
+  const pressured =
+    nearestOpponentToPoint(s, cand.team, cand.pos, AI.pressureDist) !== null
+
+  // BOLA NO AR ao alcance da cabeça → cabeceia:
+  if (s.ball.z > AIR.groundBand) {
+    // 1) atacante na área adversária: cabeçada A GOL (desvio no rumo da meta);
+    if (tryHeaderOnGoal(s, cand)) return
+    // 2) na própria área OU pressionado no campo de defesa: CORTA de cabeça pra
+    //    cima e pra longe (tira o perigo "de qualquer maneira");
+    const inOwnBox = inPenaltyArea(s.ball.pos, defendingGoalX(dir))
+    const ownHalf = (cand.pos.x - FIELD.cx) * dir < 0
+    if (inOwnBox || (pressured && ownHalf)) return clearUpfield(s, cand)
+    // 3) sem perigo: ameniza de cabeça/peito e assume (a bola desce aos pés).
+    return controlLoose(s, cand)
+  }
+
+  // BOLA RASTEIRA na própria grande área e sob pressão → afasta "de qualquer
+  // maneira": com gente demais na área, é perigoso dominar — manda pra cima e pra fora.
+  if (inPenaltyArea(s.ball.pos, defendingGoalX(dir)) && pressured)
+    return clearUpfield(s, cand)
+
+  // jogador de linha (ou goleiro fora da área): domina a bola com os pés.
+  controlLoose(s, cand)
+}
+
+/**
+ * Afastamento "de qualquer maneira": o jogador joga a bola PRA CIMA e pra FRENTE,
+ * longe do próprio gol — tanto o corte de cabeça na defesa quanto o alívio da bola
+ * rasteira na área lotada. Mira o rumo do ataque com um leque/scatter apertado por
+ * quem cabeceia/salta melhor; a bola sobe e fica VIVA (disputa quem chega).
+ */
+const clearUpfield = (s: MatchState, p: Player) => {
+  const goalC = vec(attackingGoalX(s.attackDir[p.team]), FIELD.cy)
+  let d = dirTo(p.pos, goalC)
+  if (len(d) < 1e-6) d = vec(s.attackDir[p.team], 0)
+  // aerialPower aperta o leque (corte mais direcionado); o atrapalhado espirra
+  const scat = AIR.clearScatter * (1 - aerialPower(p.attrs) * 0.5)
+  const ang = (rand(s) - 0.5) * 2 * scat
+  const c = Math.cos(ang)
+  const sn = Math.sin(ang)
+  d = vec(d.x * c - d.y * sn, d.x * sn + d.y * c)
+  s.ball.pos = { ...p.pos }
+  s.ball.vel = scale(d, AIR.clearSpeedBase + aerialPower(p.attrs) * AIR.clearSpeedSkill)
+  s.ball.vz = AIR.clearVz // sobe forte (parte da altura atual do contato)
+  s.ball.spin = 0
+  s.controllerId = null
+  s.possession = p.team
+  s.lastTouchId = p.id
+  s.lastPasserId = null
+  s.holdTime = 0
+  s.kickCooldown = 0.3
+}
+
+/**
+ * Cabeceio a gol num cruzamento/escanteio: bola ALTA, vinda na direção do
+ * jogador, dentro da grande área de ATAQUE → o atacante sobe e cabeceia rumo à
+ * meta. A chance depende de heading/impulsão (aerialPower); a cabeçada sai mais
+ * fraca que um chute de pé. Espalhamento inline (rand+rotação), como em
+ * spillBall — sem withNoise/spread (não estão neste escopo).
+ */
+const tryHeaderOnGoal = (s: MatchState, p: Player): boolean => {
+  if (p.role === 'GK') return false
+  if (s.ball.z <= AIR.groundBand) return false // só bola NO AR (cabeçada de verdade)
+  const goalX = attackingGoalX(s.attackDir[p.team])
+  if (!inPenaltyArea(s.ball.pos, goalX)) return false // só na área de ataque
+  // a bola tem de estar VINDO em cima do jogador (incidente), não se afastando
+  const incoming = -(
+    s.ball.vel.x * (s.ball.pos.x - p.pos.x) +
+    s.ball.vel.y * (s.ball.pos.y - p.pos.y)
+  )
+  if (incoming <= 0) return false
+
+  // chance de uma cabeçada ENQUADRADA: competência aérea + frieza
+  const ah = aerialPower(p.attrs)
+  const headChance = clamp(
+    HEAD.base + ah * HEAD.skill + nrm(p.attrs.composure) * HEAD.composure,
+    HEAD.floor,
+    HEAD.cap,
+  )
+  if (rand(s) >= headChance) return false // cabeçada mal dada → cai no domínio normal
+
+  // mira o gol e desvia a bola para lá, mais fraca que um chute de pé
+  const goalC = vec(goalX, FIELD.cy)
+  let dir = norm(sub(goalC, p.pos))
+  if (len(dir) < 1e-6) dir = norm(s.ball.vel)
+  // espalhamento inline: heading apertado mira melhor (rotaciona a direção)
+  const scat = HEAD.scatter * (1 - nrm(p.attrs.heading) * HEAD.scatterAim)
+  const ang = (rand(s) - 0.5) * 2 * scat
+  const c = Math.cos(ang)
+  const sn = Math.sin(ang)
+  dir = vec(dir.x * c - dir.y * sn, dir.x * sn + dir.y * c)
+
+  const headSpeed = HEAD.speedBase + ah * HEAD.speedSkill
+  s.ball.pos = { ...p.pos }
+  s.ball.vel = scale(dir, headSpeed)
+  s.ball.spin = 0
+  s.controllerId = null
+  s.possession = p.team
+  s.lastTouchId = p.id
+  s.lastShooterId = p.id
+  s.lastShotDist = dist(p.pos, goalC)
+  s.holdTime = 0
+  s.kickCooldown = 0.3
+  s.stats[p.team].shots++
+  addEvent(s, 'shot', p.team, `Cabeçada de ${p.name}!`)
+  return true
+}
+
+/**
+ * Domínio da bola solta por um jogador de LINHA (ou goleiro fora da própria
+ * área): pode errar o primeiro toque e a bola escapar à frente — pior cansado e
+ * sem firstTouch/composure/concentração. Senão, assume a posse.
+ */
+const controlLoose = (s: MatchState, cand: Player) => {
   if (rand(s) < miscontrol(cand, len(s.ball.vel))) {
     const away = len(s.ball.vel) > 0.5 ? norm(s.ball.vel) : vec(rand(s) - 0.5, rand(s) - 0.5)
     s.ball.vel = scale(norm(away), CONTROL.squirtSpeed)
@@ -569,6 +945,9 @@ const tryGainLoose = (s: MatchState) => {
 const ballPlayerCollisions = (s: MatchState) => {
   if (s.controllerId !== null) return
   const b = s.ball
+  // bola acima dos ombros NÃO é bloqueada pelo corpo — passa por cima do botão
+  // (o cabeceio/abafamento ao alcance é tratado em tryGainLoose).
+  if (b.z > AIR.bodyHeight) return
   const speed = len(b.vel)
   if (speed < COLLIDE.minSpeed) return
   const rr = PHYS.playerRadius + PHYS.ballRadius
@@ -585,12 +964,22 @@ const ballPlayerCollisions = (s: MatchState) => {
 
     b.pos = add(p.pos, scale(nv, rr)) // tira a bola de dentro do corpo
     s.lastTouchId = p.id
-    const lofted = speed > CONTROL.loftSpeed
-    const skill = lofted
-      ? aerialPower(p.attrs)
-      : nrm(p.attrs.firstTouch) * 0.6 + nrm(p.attrs.anticipation) * 0.4
+    const lofted = b.z > AIR.groundBand || speed > CONTROL.loftSpeed
+    // na bola solta 50/50, a FORÇA (ombro a ombro) ajuda a blindar e amortecer
+    // o contato em vez de só ricochetear no corpo.
+    // GANHAR a bola alta é impulsão (ver aerialDuelEdge); CONTROLÁ-LA é cabeceio:
+    // o grande saltador sem cabeceio alcança a bola mas a desvia (flick), não amortece.
+    const skill =
+      (lofted
+        ? nrm(p.attrs.heading) * 0.7 + nrm(p.attrs.jumping) * 0.3
+        : nrm(p.attrs.firstTouch) * 0.6 + nrm(p.attrs.anticipation) * 0.4) +
+      nrm(p.attrs.strength) * COLLIDE.cushionStrength
 
-    if (rand(s) < COLLIDE.cushionBase + skill * COLLIDE.cushionSkill) {
+    // o BRAVO se atira na frente da bola forte: amortece/bloqueia em vez de deixar
+    // ricochetear — quanto mais rápida a bola, mais mérito tem pôr o corpo nela.
+    const brave =
+      nrm(p.attrs.bravery) * clamp((speed - COLLIDE.minSpeed) / COLLIDE.minSpeed, 0, 1) * COLLIDE.cushionBravery
+    if (rand(s) < COLLIDE.cushionBase + skill * COLLIDE.cushionSkill + brave) {
       // AMORTECE: mata a bola nos pés; vira posse no próximo domínio
       b.vel = scale(b.vel, COLLIDE.cushionKeep)
       b.spin = 0
@@ -608,13 +997,48 @@ const ballPlayerCollisions = (s: MatchState) => {
   }
 }
 
+/**
+ * Move a bola SOLTA um passo: no ar cai pela gravidade e quica ao tocar o gramado;
+ * rasteira, curva pelo efeito (Magnus) e perde força no atrito de rolagem. Só o
+ * deslocamento — bloqueios no corpo e saídas de linha ficam por conta de quem chama.
+ */
+const advanceBallFlight = (s: MatchState, dt: number) => {
+  const airborne = s.ball.z > AIR.groundBand || s.ball.vz !== 0
+  if (airborne) {
+    // BOLA NO AR: cai pela gravidade e quase não perde ímpeto horizontal (cruza
+    // o campo). Ao tocar o chão, QUICA (perde energia) ou assenta e volta a rolar.
+    s.ball.vz -= AIR.gravity * dt
+    s.ball.z += s.ball.vz * dt
+    s.ball.pos = add(s.ball.pos, scale(s.ball.vel, dt))
+    s.ball.vel = scale(s.ball.vel, Math.pow(AIR.airDamping, dt))
+    if (s.ball.z <= 0) {
+      s.ball.z = 0
+      // quique: inverte e amortece a vertical; se sobrou pouco, assenta (rola).
+      s.ball.vz = -s.ball.vz * AIR.bounce
+      if (s.ball.vz < 1.5) s.ball.vz = 0
+      s.ball.vel = scale(s.ball.vel, 0.86) // atrito do toque no gramado
+    }
+  } else {
+    // BOLA RASTEIRA: efeito (Magnus) curva a trajetória e o atrito de rolagem freia.
+    if (Math.abs(s.ball.spin) > 1e-4) {
+      const u = norm(s.ball.vel)
+      s.ball.vel = add(s.ball.vel, scale(perp(u), s.ball.spin * dt))
+      s.ball.spin *= Math.pow(PHYS.spinDecay, dt)
+    }
+    s.ball.pos = add(s.ball.pos, scale(s.ball.vel, dt))
+    s.ball.vel = scale(s.ball.vel, Math.pow(PHYS.ballDamping, dt))
+  }
+  s.ball.roll += len(s.ball.vel) * dt // giro visual proporcional à velocidade
+}
+
 const teamDefending = (s: MatchState, goalX: number): TeamId =>
   defendingGoalX(s.attackDir.home) === goalX ? 'home' : 'away'
 
 /** Trata gols, quique na trave e os reinícios de bola fora (fundo e lateral). */
 const resolveBounds = (s: MatchState) => {
   const b = s.ball
-  const inMouth = b.pos.y > GOAL.top && b.pos.y < GOAL.bottom
+  // dentro da BOCA do gol e ABAIXO do travessão — bola por cima (z alto) não é gol
+  const inMouth = b.pos.y > GOAL.top && b.pos.y < GOAL.bottom && b.z < GOAL.height
 
   // quique na trave: postes pontuais nas quinas do gol devolvem a bola
   for (const gx of [0, FIELD.w]) {
@@ -633,13 +1057,14 @@ const resolveBounds = (s: MatchState) => {
     }
   }
 
-  // linha de fundo: gol, tiro de meta ou escanteio conforme QUEM mandou fora
+  // linha de fundo: gol é imediato; fora do gol a bola SEGUE rolando um instante
+  // (beginGoalLineOut) antes do tiro de meta/escanteio — o jogador vê que saiu.
   if (b.pos.x <= 0) {
     if (inMouth) return scoreGoal(s, teamDefending(s, 0), 0)
-    return restartGoalLine(s, 0)
+    return beginGoalLineOut(s, 0)
   } else if (b.pos.x >= FIELD.w) {
     if (inMouth) return scoreGoal(s, teamDefending(s, FIELD.w), FIELD.w)
-    return restartGoalLine(s, FIELD.w)
+    return beginGoalLineOut(s, FIELD.w)
   }
 
   // laterais → arremesso lateral para o adversário de QUEM TOCOU POR ÚLTIMO
@@ -647,9 +1072,18 @@ const resolveBounds = (s: MatchState) => {
     const lastTeam =
       s.lastTouchId !== null ? byId(s, s.lastTouchId).team : s.possession
     const throwTeam = lastTeam ? other(lastTeam) : 'home'
-    const exit = vec(b.pos.x, clamp(b.pos.y, RESTART.cornerInset, FIELD.h - RESTART.cornerInset))
+    // o cobrador fica EM CIMA da linha lateral (não dentro do campo), no ponto em
+    // que a bola saiu; um leve recuo evita re-disparar a saída de bola.
+    const lineY = b.pos.y <= 0 ? RESTART.throwInInset : FIELD.h - RESTART.throwInInset
+    const exitX = clamp(b.pos.x, RESTART.cornerInset, FIELD.w - RESTART.cornerInset)
+    const exit = vec(exitX, lineY)
     const taker = nearestOfTeamTo(s, throwTeam, exit)
+    placeTaker(taker, exit)
     placeDeadBall(s, taker, throwTeam, RESTART.throwInDeadball)
+    // marca o arremesso: o cobrador LANÇA COM A MÃO (bola aérea, força limitada)
+    // num companheiro, em vez de tratar a bola como um passe rasteiro qualquer.
+    s.throwIn = true
+    s.stats[throwTeam].throwIns++
   }
 }
 
@@ -682,17 +1116,49 @@ const placeDeadBall = (
 ) => {
   s.ball.pos = { ...taker.pos }
   s.ball.prevPos = { ...s.ball.pos }
+  s.ball.prevZ = 0
   s.ball.vel = vec(0, 0)
+  s.ball.z = 0
+  s.ball.vz = 0
   s.ball.spin = 0
   s.possession = team
   s.restartTeam = team
   s.goalKick = false // só o tiro de meta marca true (ver `goalKick`)
+  s.throwIn = false // só o arremesso lateral marca true (ver `throwIn`)
+  s.freeKick = false // só o tiro livre marca true (ver `setupFreeKick`)
+  s.penalty = false
   s.controllerId = taker.id
   s.lastTouchId = taker.id
   s.holdTime = 0
   s.kickCooldown = 0
   s.tackleCooldown = deadball + DUEL.cooldown
   s.deadball = deadball
+  s.outOfPlay = 0 // a bola foi recolocada: encerra qualquer espera de saída
+  s.pendingGoalLineX = null
+  s.goalKickWait = 0 // zera a espera por área limpa (só o tiro de meta a consome)
+}
+
+/**
+ * Área (em `gx`) LIVRE para o tiro de meta: ninguém além do batedor (o goleiro
+ * que cobra, `takerId`) está dentro da grande área. Pela Lei 16 o adversário
+ * fica fora; aqui exigimos o campo inteiro fora dela — nada de cobrar com gente
+ * amontoada na área.
+ */
+const penaltyAreaClear = (s: MatchState, gx: number, takerId: number | null): boolean =>
+  !s.players.some((p) => p.id !== takerId && inPenaltyArea(p.pos, gx))
+
+/**
+ * A bola acabou de cruzar a linha de fundo fora do gol. Em vez de reiniciar na
+ * hora, abre uma janela (`outOfPlay`) em que a bola SEGUE o rumo dela morrendo
+ * fora de campo; só ao fim dessa espera é que `restartGoalLine` decide tiro de
+ * meta ou escanteio (ver o tratamento de `outOfPlay` em `step`). `gx` é a linha
+ * por onde saiu; guarda quem tocou por último (já em `lastTouchId`) no reinício.
+ */
+const beginGoalLineOut = (s: MatchState, gx: number) => {
+  s.outOfPlay = RESTART.goalLineOutDelay
+  s.pendingGoalLineX = gx
+  s.controllerId = null
+  s.holdTime = 0
 }
 
 /**
@@ -730,6 +1196,7 @@ const goalKick = (s: MatchState, team: TeamId, gx: number) => {
   // marca o tiro de meta: dispara a reestruturação (Lei 16) e tira o goleiro do
   // modo "fica cozinhando a bola" — distribui assim que o time se reorganiza.
   s.goalKick = true
+  s.stats[team].goalKicks++
 }
 
 /**
@@ -743,6 +1210,7 @@ const cornerKick = (s: MatchState, team: TeamId, gx: number) => {
   const taker = nearestOfTeamTo(s, team, corner)
   placeTaker(taker, corner)
   placeDeadBall(s, taker, team, RESTART.cornerDeadball)
+  s.stats[team].corners++
   addEvent(s, 'corner', team, `Escanteio para ${TEAMS[team].name}`)
 }
 
@@ -769,6 +1237,8 @@ const scoreGoal = (s: MatchState, conceded: TeamId, goalX: number) => {
   // diferença ANTES do gol — define a "história" do lance (empate/virada/etc.)
   const diffBefore = s.score[scorer] - s.score[conceded]
   s.score[scorer]++
+  s.penalty = false
+  addStoppage(s, STOPPAGE.perGoal) // a comemoração rouba tempo → acréscimos (Lei 7)
 
   const shooter = s.lastShooterId !== null ? byId(s, s.lastShooterId) : null
   // só credita o autor se ele for do time que marcou (senão é gol contra)
@@ -797,7 +1267,10 @@ const scoreGoal = (s: MatchState, conceded: TeamId, goalX: number) => {
     clamp(s.ball.pos.y, GOAL.top + 0.4, GOAL.bottom - 0.4),
   )
   s.ball.vel = vec(0, 0)
+  s.ball.z = 0
+  s.ball.vz = 0
   s.ball.prevPos = { ...s.ball.pos }
+  s.ball.prevZ = 0
   s.ball.spin = 0
   s.controllerId = null
   s.possession = null
@@ -839,6 +1312,7 @@ export const stepCelebration = (s: MatchState, dtReal: number): void => {
   // snapshot do passo anterior — o render interpola prev→pos (movimento suave)
   for (const p of s.players) p.prevPos = { ...p.pos }
   s.ball.prevPos = { ...s.ball.pos }
+  s.ball.prevZ = s.ball.z
 
   c.t += dtReal
 
@@ -881,6 +1355,7 @@ const switchSides = (s: MatchState) => {
   s.half = 2
   s.attackDir.home = (s.attackDir.home * -1) as Dir
   s.attackDir.away = (s.attackDir.away * -1) as Dir
+  s.stoppage = 0 // acréscimos são por tempo — zera para o 2º tempo
   addEvent(s, 'half', null, '⏱️ Fim do 1º tempo — troca de lados')
   kickoff(s, other(s.firstKickoff))
   addEvent(s, 'kickoff', other(s.firstKickoff), 'Começa o 2º tempo!')
@@ -893,16 +1368,17 @@ export const step = (s: MatchState, dt: number): void => {
   // snapshot do estado anterior — o render interpola prev→pos (movimento suave)
   for (const p of s.players) p.prevPos = { ...p.pos }
   s.ball.prevPos = { ...s.ball.pos }
+  s.ball.prevZ = s.ball.z
 
   s.time += dt * MATCH.clockRate
 
-  // transições de tempo
-  if (s.half === 1 && s.time >= MATCH.halfSeconds) {
+  // transições de tempo — cada tempo dura 45min + os ACRÉSCIMOS acumulados (Lei 7)
+  if (s.half === 1 && s.time >= MATCH.halfSeconds + s.stoppage) {
     switchSides(s)
     return
   }
-  if (s.time >= 2 * MATCH.halfSeconds) {
-    s.time = 2 * MATCH.halfSeconds
+  if (s.time >= 2 * MATCH.halfSeconds + s.stoppage) {
+    s.time = 2 * MATCH.halfSeconds + s.stoppage
     s.status = 'over'
     const r = `${s.score.home} x ${s.score.away}`
     addEvent(s, 'fulltime', null, `🏁 Fim de jogo — Brasil ${r} Argentina`)
@@ -916,10 +1392,13 @@ export const step = (s: MatchState, dt: number): void => {
     const sta = nrm(p.attrs.stamina)
     if (speed > STAMINA.jogSpeed) {
       const intensity = clamp((speed - STAMINA.jogSpeed) / STAMINA.sprintBand, 0, 1)
-      p.energy -= sec * STAMINA.sprintDrain * intensity * (1.4 - sta)
+      p.energy -= sec * STAMINA.sprintDrain * intensity * (STAMINA.drainBase - sta * STAMINA.drainStamina)
     } else {
-      // recupera mais rápido quem tem melhor condição física (naturalFitness)
-      p.energy += sec * STAMINA.recover * recoverMul(p.attrs)
+      // recupera mais rápido quem tem melhor condição física (naturalFitness);
+      // a recuperação MINGUA quanto mais exausto se está (curva real de 90min),
+      // mas o bom naturalFitness achata essa queda e volta mesmo gasto.
+      const depletion = 1 - (1 - p.energy) * STAMINA.recoverFade * (1 - nrm(p.attrs.naturalFitness))
+      p.energy += sec * STAMINA.recover * recoverMul(p.attrs) * depletion
     }
     p.energy = clamp(p.energy, STAMINA.floor, 1)
     if (p.stun > 0) p.stun = Math.max(0, p.stun - dt)
@@ -933,9 +1412,19 @@ export const step = (s: MatchState, dt: number): void => {
   s.kickCooldown = Math.max(0, s.kickCooldown - dt)
   s.tackleCooldown = Math.max(0, s.tackleCooldown - dt)
 
-  // ----- BOLA PARADA (cobrança de falta / lateral) -----
+  // ----- BOLA PARADA (cobrança de falta / lateral / pênalti) -----
   if (s.deadball > 0) {
     s.deadball -= dt
+    if (s.deadball <= 0) s.penalty = false // fim da espera: o pênalti pode ser batido
+    // TIRO DE META (Lei 16): terminado o tempo-base de reorganização, o goleiro só
+    // cobra com a ÁREA LIMPA — segura a bola enquanto houver jogador (de qualquer
+    // time) dentro dela, até o teto goalKickMaxWait (não trava se alguém ficar preso).
+    if (s.goalKick && s.deadball <= 0 && s.restartTeam) {
+      s.goalKickWait += dt
+      const gx = defendingGoalX(s.attackDir[s.restartTeam])
+      if (s.goalKickWait < RESTART.goalKickMaxWait && !penaltyAreaClear(s, gx, s.controllerId))
+        s.deadball = dt // mantém congelado mais um passo (continua a reorganização)
+    }
     for (const p of s.players) {
       if (p.id === s.controllerId) continue
       advancePlayer(s, p, dt)
@@ -949,6 +1438,29 @@ export const step = (s: MatchState, dt: number): void => {
       s.ball.vel = vec(0, 0) // a bola fica parada no ponto da falta
     }
     s.ball.spin = 0
+    s.ball.z = 0 // bola parada está sempre no chão
+    s.ball.vz = 0
+    return
+  }
+
+  // ----- BOLA FORA (saiu pela linha de fundo, morrendo antes do reinício) -----
+  if (s.outOfPlay > 0) {
+    s.outOfPlay -= dt
+    // os jogadores se reorganizam enquanto a bola morre fora; ninguém a disputa
+    for (const p of s.players) advancePlayer(s, p, dt)
+    separate(s)
+    // a bola SEGUE o rumo dela, sem novas checagens de linha; prende-se na faixa
+    // ao redor do campo (alambrado) para continuar visível durante a espera.
+    advanceBallFlight(s, dt)
+    const m = RESTART.goalLineOutMargin
+    if (s.ball.pos.x < -m || s.ball.pos.x > FIELD.w + m) s.ball.vel.x = 0
+    if (s.ball.pos.y < -m || s.ball.pos.y > FIELD.h + m) s.ball.vel.y = 0
+    s.ball.pos.x = clamp(s.ball.pos.x, -m, FIELD.w + m)
+    s.ball.pos.y = clamp(s.ball.pos.y, -m, FIELD.h + m)
+    if (s.outOfPlay <= 0) {
+      restartGoalLine(s, s.pendingGoalLineX ?? 0)
+      s.pendingGoalLineX = null
+    }
     return
   }
 
@@ -959,8 +1471,12 @@ export const step = (s: MatchState, dt: number): void => {
   tryGainLoose(s)
 
   // ----- DECISÃO de quem está com a bola -----
+  // Uma FALTA/PÊNALTI marcada agora (em tryTackle) já pôs o cobrador com a bola e
+  // abriu a bola parada (deadball) NESTE passo. Não deixe ele cobrar de imediato:
+  // a jogada precisa congelar para a barreira e o ataque se posicionarem — o
+  // cobrador só age quando o deadball zera (o bloco de bola parada cuida do resto).
   let dribbleDir: Vec2 | null = null
-  if (s.controllerId !== null) {
+  if (s.controllerId !== null && s.deadball <= 0) {
     const carrier = byId(s, s.controllerId)
     s.holdTime += dt
     const action = decideAction(s, carrier)
@@ -985,12 +1501,26 @@ export const step = (s: MatchState, dt: number): void => {
       // "na corrida" mais forte SEM entortar a mira (momentum sem distorção).
       const carry = Math.max(0, carrier.vel.x * dir.x + carrier.vel.y * dir.y)
       s.ball.vel = scale(dir, action.speed + carry * PHYS.releaseCarry)
+      // ALTURA: lançamentos/cruzamentos/chutões alçados sobem (loft); chão = 0.
+      s.ball.z = 0 // bola chutada parte do gramado
+      s.ball.vz = action.loft ?? 0
       // efeito lateral: forte no chute, sutil no passe (não tira o passe da mira).
       // jogadores com mais flair imprimem mais efeito (curva) na bola
       const spinMax =
         (action.type === 'shoot' ? PHYS.maxSpin : PHYS.maxSpin * PHYS.passSpinScale) *
         flairSpin(carrier.attrs)
-      s.ball.spin = (rand(s) - 0.5) * 2 * spinMax
+      // No chute, o finalizador frio CURVA a bola rumo ao canto mirado (perp do
+      // alvo) em vez de efeito puramente aleatório; composure firma essa mão.
+      if (action.type === 'shoot') {
+        const pp = perp(dir)
+        const toCorner =
+          (action.target.y - s.ball.pos.y) * pp.y + (action.target.x - s.ball.pos.x) * pp.x
+        const aimSign = toCorner >= 0 ? 1 : -1
+        const bias = SHOT.spinAimBias * nrm(carrier.attrs.composure)
+        s.ball.spin = ((1 - bias) * (rand(s) - 0.5) * 2 + bias * aimSign) * spinMax
+      } else {
+        s.ball.spin = (rand(s) - 0.5) * 2 * spinMax
+      }
       s.lastTouchId = carrier.id
       if (action.type === 'shoot') {
         s.stats[carrier.team].shots++
@@ -1004,6 +1534,8 @@ export const step = (s: MatchState, dt: number): void => {
       }
       s.controllerId = null
       s.goalKick = false // bola chutada/distribuída: o tiro de meta acabou
+      s.throwIn = false // bola lançada: o arremesso lateral acabou
+      s.freeKick = false // bola batida/lançada: o tiro livre acabou
       s.holdTime = 0
       s.kickCooldown = 0.3
     }
@@ -1035,17 +1567,11 @@ export const step = (s: MatchState, dt: number): void => {
     s.ball.pos = lerpV(s.ball.pos, target, clamp(PHYS.footLerp * dt, 0, 1))
     s.ball.vel = { ...carrier.vel }
     s.ball.spin = 0
+    s.ball.z = 0 // bola dominada/conduzida está no chão
+    s.ball.vz = 0
     s.ball.roll += len(carrier.vel) * dt
   } else {
-    // efeito (Magnus): empurra a bola perpendicular à direção e vai sumindo
-    if (Math.abs(s.ball.spin) > 1e-4) {
-      const u = norm(s.ball.vel)
-      s.ball.vel = add(s.ball.vel, scale(perp(u), s.ball.spin * dt))
-      s.ball.spin *= Math.pow(PHYS.spinDecay, dt)
-    }
-    s.ball.pos = add(s.ball.pos, scale(s.ball.vel, dt))
-    s.ball.vel = scale(s.ball.vel, Math.pow(PHYS.ballDamping, dt))
-    s.ball.roll += len(s.ball.vel) * dt // giro visual proporcional à velocidade
+    advanceBallFlight(s, dt)
     ballPlayerCollisions(s) // bloqueios/desvios no corpo dos jogadores de linha
     resolveBounds(s)
   }
