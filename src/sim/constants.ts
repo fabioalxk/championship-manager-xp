@@ -147,17 +147,42 @@ export const FREEKICK = {
   /** distância regulamentar da barreira à bola (m) — Lei 13 */
   wallDist: 9.15,
   /** nº máximo de defensores que formam a barreira numa falta perigosa */
-  wallMax: 4,
+  wallMax: 3,
+  /** largura (m) que a barreira cobre a partir do 1º pau — APERTADA junto ao poste
+   *  (não se estende até o meio do gol), deixando o canto OPOSTO livre para o
+   *  cobrador enfiar/levantar a bola; o goleiro é quem cobre esse outro canto */
+  wallWidth: 2.4,
   /** distância ao gol (m) abaixo da qual a falta é "perigosa": arma barreira */
   dangerDist: 30,
   /** desvio lateral máximo do centro do gol (m) p/ tentar o CHUTE DIRETO */
   shootCone: 18,
-  /** alcance extra (m) do chute direto sobre o de jogo — bola PARADA, batida limpa */
-  directRangeBonus: 8,
+  /** alcance extra (m) do chute direto sobre o de jogo — bola PARADA, batida limpa.
+   *  Curto de propósito: de muito longe (30 m+) a falta vira LANÇAMENTO na área, não
+   *  chute direto (como na vida real) — evita a cauda de gols fáceis de fora. */
+  directRangeBonus: 3,
+  /** altura-alvo (m) com que o chute direto CHEGA ao gol — calcula o loft para a
+   *  bola subir POR CIMA do paredão (9,15 m) e cair nesse canto (alto, sob o
+   *  travessão). Vale para perto e longe: perto sobe menos, longe sobe mais. */
+  targetHeight: 1.7,
+  /** folga (m) acima da altura do corpo que a bola precisa ter ao cruzar o paredão
+   *  — usada para LIMITAR a potência: perto, martelar manda a bola por cima do gol;
+   *  é preciso COLOCAR (mais fraco, com efeito) para subir sobre o paredão e baixar */
+  wallClearMargin: 0.45,
   /** distância ao gol (m) até onde se prefere LANÇAR na área a recompor */
   launchDist: 42,
   /** pico (m) do arco do lançamento de falta na área (sobe à altura de cabeça) */
   launchPeak: 4,
+  /** janela (s) em que o chute direto está "no ar": só o goleiro o defende —
+   *  jogadores de linha não cabeceiam o petardo enquadrado (apenas bloqueio rasteiro) */
+  shotWindow: 1.6,
+  /** dispersão angular EXTRA (rad) do chute direto — o tiro livre é de baixa
+   *  conversão: muitos vão por cima, na barreira ou raspando a trave. Sem isso quase
+   *  todos saem enquadrados e viram gol fácil (irreal). */
+  aimSpread: 0.07,
+  /** bônus de defesa do goleiro contra o chute DIRETO de falta — ele está POSTADO
+   *  e à espera da cobrança (bola parada), logo defende bem mais que num chute de
+   *  jogo. É o que segura a conversão na faixa real (~6-8% p/ bons batedores). */
+  gkSetBonus: 0.17,
 }
 
 /**

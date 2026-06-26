@@ -22,7 +22,7 @@ import {
   shotSpeed,
   shotSpread,
 } from './ratings'
-import { add, dirTo, dist, perp, scale, vec } from './vector'
+import { add, dirTo, dist, scale, vec } from './vector'
 import { rand } from './rng'
 
 export type Action =
@@ -401,30 +401,61 @@ const freeKickStation = (s: MatchState, p: Player): Vec2 => {
   const home = homePos(p, dir)
   const spot = s.ball.pos
 
+  // a falta tende a CHUTE DIRETO? (perto do gol e central) — se sim, NÃO se
+  // amontoa o miolo: o lance é o cobrador colocando no canto por cima do paredão.
+  const atkGx = attackingGoalX(s.attackDir[kt])
+  const dGoal = dist(spot, vec(atkGx, FIELD.cy))
+  const likelyDirect =
+    Math.abs(spot.y - FIELD.cy) < FREEKICK.shootCone && dGoal < FREEKICK.dangerDist
+
   // time que cobra: o cobrador já está na bola; os demais sobem para o ataque
   if (p.team === kt) {
     if (p.id === s.controllerId) return p.pos
+    // chute direto: espalha os companheiros nas PONTAS da área (rebote), longe do
+    // canal central da batida — assim a zaga os segue para fora do miolo.
+    if (likelyDirect) {
+      const into = atkGx === 0 ? 1 : -1
+      const wing = p.id % 2 === 0 ? 1 : -1
+      const x = atkGx + into * (AREA.penaltyDepth - 2)
+      const y = FIELD.cy + wing * (11 + (p.id % 3) * 3)
+      return vec(clamp(x, 2, FIELD.w - 2), clamp(y, 4, FIELD.h - 4))
+    }
     return attackTarget(s, p, sign(dir), home)
   }
 
-  // defesa: só arma barreira nas faltas perigosas (perto do próprio gol)
+  // defesa: só arma barreira nas faltas perigosas (perto do próprio gol). Longe,
+  // defende normalmente (marca os adversários) em vez de amontoar no miolo.
   const goalC = vec(defendingGoalX(dir), FIELD.cy)
-  if (dist(spot, goalC) >= FREEKICK.dangerDist) return home
+  if (dist(spot, goalC) >= FREEKICK.dangerDist) return defendTarget(s, p, home)
 
-  // os N defensores de linha mais próximos do ponto da barreira a formam
-  const toGoal = dirTo(spot, goalC)
-  const wallPoint = add(spot, scale(toGoal, FREEKICK.wallDist))
-  const wallers = opponents(s, kt)
-    .filter((o) => o.role !== 'GK')
-    .sort((a, b) => dist(a.pos, wallPoint) - dist(b.pos, wallPoint))
-    .slice(0, FREEKICK.wallMax)
-  const idx = wallers.findIndex((w) => w.id === p.id)
-  if (idx < 0) return home // não é da barreira → mantém a formação/marcação
+  // a barreira FECHA o 1º pau (o poste do lado da bola); o goleiro cobre o outro
+  // canto. Quem a forma vem da FONTE ÚNICA `s.wallIds` (fixada no engine), em LEQUE
+  // do poste para dentro — deixa o canto oposto (longe) para o goleiro defender.
+  const idx = s.wallIds.indexOf(p.id)
+  // fora da barreira: MARCA os atacantes (espalha pela área), em vez de fazer
+  // muralha no miolo — abre o canal central para o chute por cima do paredão.
+  if (idx < 0) {
+    if (likelyDirect) {
+      // só a ZAGA recua, e para as PONTAS (atrás do paredão, fora do canal central
+      // do chute); os MEIAS ficam fora da área — não invadem a rota da bola correndo
+      // do meio (era isso que abafava o chute curto: meia parado na frente da bola).
+      if (p.role !== 'DEF') return homePos(p, dir)
+      const into = goalC.x === 0 ? 1 : -1
+      const wing = p.id % 2 === 0 ? 1 : -1
+      const x = goalC.x + into * (AREA.goalDepth + 1)
+      const y = FIELD.cy + wing * (AREA.goalHalfWidth + 2 + (p.id % 3))
+      return vec(clamp(x, 2, FIELD.w - 2), clamp(y, 4, FIELD.h - 4))
+    }
+    return defendTarget(s, p, home)
+  }
 
-  // espalha na perpendicular à linha bola→gol, centralizado na barreira
-  const side = perp(toGoal)
-  const offset = (idx - (wallers.length - 1) / 2) * (PHYS.playerRadius * 2)
-  const t = add(wallPoint, scale(side, offset))
+  // leque APERTADO no 1º pau: o 1º tapa o poste, os demais escalonam só uns metros
+  // para dentro (wallWidth) — NÃO chega ao meio do gol, deixando o canto oposto
+  // livre para o cobrador. Sem isso a barreira "cabeceia" o chute ao far corner.
+  const ns = Math.sign(spot.y - FIELD.cy) || 1
+  const frac = s.wallIds.length > 1 ? idx / (s.wallIds.length - 1) : 0
+  const aimY = FIELD.cy + ns * (GOAL.width / 2 - frac * FREEKICK.wallWidth)
+  const t = add(spot, scale(dirTo(spot, vec(goalC.x, aimY)), FREEKICK.wallDist))
   return vec(clamp(t.x, 2, FIELD.w - 2), clamp(t.y, 2, FIELD.h - 2))
 }
 
@@ -556,16 +587,39 @@ const freeKickAction = (s: MatchState, carrier: Player, dir: Dir, fwd: number): 
   const dGoal = dist(carrier.pos, goalC)
   const central = Math.abs(carrier.pos.y - FIELD.cy) < FREEKICK.shootCone
 
-  // 1) CHUTE DIRETO: bola parada estende o alcance (batida sem pressão e firme)
+  // 1) CHUTE DIRETO: bola parada estende o alcance (batida sem pressão e firme).
+  //    Mira o canto OPOSTO ao lado da bola — por cima/ao redor da barreira do 1º
+  //    pau, no canto que sobra para o goleiro cobrir (curva por composure no engine).
   const directRange = shootRangeOf(carrier.attrs, AI.shootRange) + FREEKICK.directRangeBonus
   if (central && dGoal < directRange) {
+    const ns = Math.sign(carrier.pos.y - FIELD.cy) || 1
+    const aim = vec(atkGx, FIELD.cy - ns * (GOAL.width / 2 - AI.shotCornerInset))
+    // CHUTE COLOCADO por cima do paredão: a bola tem de subir ACIMA do corpo ao
+    // cruzar os 9,15 m E ainda cair sob o travessão no gol. Isso LIMITA a potência —
+    // de perto não dá pra martelar por cima (sairia por cima do gol): exige colocar
+    // (mais fraco, dipping); de longe pode bater mais forte. Deriva o teto de
+    // velocidade da geometria do arco que chega na altura-alvo.
+    const w = FREEKICK.wallDist
+    const denom = AIR.bodyHeight + FREEKICK.wallClearMargin - (FREEKICK.targetHeight * w) / dGoal
+    let speed = shotSpeed(carrier.attrs)
+    if (denom > 0.05)
+      speed = Math.min(speed, Math.sqrt((0.5 * AIR.gravity * w * (dGoal - w)) / denom))
+    // loft para CHEGAR na altura-alvo (canto alto) — sobe sobre o paredão e baixa
+    const tGoal = dGoal / speed
+    const loft = clamp(
+      (FREEKICK.targetHeight + 0.5 * AIR.gravity * tGoal * tGoal) / tGoal,
+      0,
+      AIR.maxVz,
+    )
     const far = clamp((dGoal - 6) / 24, 0, 1)
-    const speed = shotSpeed(carrier.attrs)
     const power = clamp((speed - SHOT.speedBase) / (SHOT.speedStrength + SHOT.speedFinishing), 0, 1)
+    // tiro livre é de BAIXA conversão: soma uma dispersão extra (vai por cima/raspando)
+    const spread = shotSpread(carrier.attrs, far, false, power) + FREEKICK.aimSpread
     return {
       type: 'shoot',
-      target: withNoise(s, carrier.pos, aimShot(s, carrier, dir), shotSpread(carrier.attrs, far, false, power)),
+      target: withNoise(s, carrier.pos, aim, spread),
       speed,
+      loft,
     }
   }
 

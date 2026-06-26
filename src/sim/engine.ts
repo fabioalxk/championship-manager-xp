@@ -87,6 +87,13 @@ const byId = (s: MatchState, id: number): Player =>
 
 const other = (t: TeamId): TeamId => (t === 'home' ? 'away' : 'home')
 
+/** Encerra a fase do tiro livre: dispersa a BARREIRA e fecha a janela do chute no
+ *  ar (a bola voltou a ser disputável normalmente — defendida, rebatida ou parada). */
+const endFreeKickPhase = (s: MatchState) => {
+  s.wallIds = []
+  s.fkShotTimer = 0
+}
+
 /** Goleiro de um time. */
 const teamGk = (s: MatchState, t: TeamId): Player =>
   s.players.find((p) => p.team === t && p.role === 'GK')!
@@ -152,6 +159,8 @@ export const createMatch = (): MatchState => {
     goalKick: false,
     throwIn: false,
     freeKick: false,
+    wallIds: [],
+    fkShotTimer: 0,
     penalty: false,
     stoppage: 0,
     lastShooterId: null,
@@ -228,6 +237,7 @@ const kickoff = (s: MatchState, kicking: TeamId) => {
   s.goalKick = false
   s.throwIn = false
   s.freeKick = false
+  endFreeKickPhase(s)
   s.penalty = false
   s.holdTime = 0
   s.kickCooldown = 0
@@ -403,6 +413,12 @@ const ballCandidate = (s: MatchState, team?: TeamId): Player | null => {
   let bestScore = Infinity
   for (const p of s.players) {
     if (team && p.team !== team) continue
+    // barreira do tiro livre: bloqueia rasteiro com o CORPO (ballPlayerCollisions),
+    // mas NÃO sobe para cabecear a bola alçada por cima — esse canto é do goleiro.
+    if (s.wallIds.includes(p.id)) continue
+    // chute direto de falta no ar: só o GOLEIRO o disputa; jogador de linha não
+    // "alivia" de cabeça um petardo enquadrado (ainda pode bloquear rasteiro).
+    if (s.fkShotTimer > 0 && p.role !== 'GK') continue
     if (s.ball.z > reachHeightOf(p)) continue // bola acima do alcance: voa por cima
     const d = dist(p.pos, s.ball.pos)
     if (d >= gainReach(p, ballSpeed, airborne)) continue
@@ -609,6 +625,21 @@ const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2) => {
   // falta perigosa congela mais: a barreira se forma e o ataque carrega a área
   placeDeadBall(s, taker, team, dangerous ? FREEKICK.deadballDanger : FREEKICK.deadball)
   s.freeKick = true
+
+  // BARREIRA (fonte única): nas faltas perigosas, fixa quais defensores formam o
+  // paredão — os mais próximos do 1º pau na linha bola→gol. A IA os posta em leque
+  // e o motor os deixa bloquear rasteiro mas não cabecear a bola alçada por cima.
+  if (dangerous) {
+    const defTeam = other(team)
+    const ns = Math.sign(spot.y - FIELD.cy) || 1
+    const nearPost = vec(atkGx, FIELD.cy + ns * (GOAL.width / 2))
+    const wallPt = add(spot, scale(dirTo(spot, nearPost), FREEKICK.wallDist))
+    s.wallIds = s.players
+      .filter((p) => p.team === defTeam && p.role !== 'GK')
+      .sort((a, b) => dist(a.pos, wallPt) - dist(b.pos, wallPt))
+      .slice(0, FREEKICK.wallMax)
+      .map((w) => w.id)
+  }
 }
 
 /**
@@ -656,6 +687,7 @@ const penaltyKick = (s: MatchState, team: TeamId, goalX: number) => {
   s.goalKick = false
   s.throwIn = false
   s.freeKick = false
+  endFreeKickPhase(s)
   s.penalty = true
   s.holdTime = 0
   s.kickCooldown = 0
@@ -673,6 +705,7 @@ const gkGrab = (s: MatchState, gk: Player) => {
   s.lastPasserId = null
   s.holdTime = 0
   s.tackleCooldown = GK.protectWindow
+  endFreeKickPhase(s) // bola defendida: barreira/janela do chute encerram
 }
 
 /** Goleiro espalma: a bola fica VIVA, desviada para fora do gol (rebote, itens 17-19). */
@@ -697,6 +730,7 @@ const spillBall = (s: MatchState, gk: Player) => {
   s.holdTime = 0
   s.kickCooldown = GK.spillCooldown // breve respiro para a segunda bola
   s.stats[gk.team].rebounds++
+  endFreeKickPhase(s) // bola espalmada: rebote VIVO (zaga volta a disputar)
 }
 
 /** Onde a bola cruzaria a linha do gol em X=gx (estima o canto do chute). */
@@ -734,6 +768,9 @@ const saveProbability = (s: MatchState, gk: Player, speed: number): number => {
   // 6. comando de área (communication): um goleiro que organiza a defesa força
   //    o atacante a finalizar de pior ângulo/posição — defesa mais sólida.
   p += nrm(a.communication) * GK.commandSave
+  // 7. CHUTE DIRETO de falta: o goleiro está postado e à espera (bola parada) —
+  //    defende bem mais que num chute de jogo, segurando a conversão na faixa real.
+  if (s.fkShotTimer > 0) p += FREEKICK.gkSetBonus
   return clamp(p, GK.saveFloor, GK.saveCap)
 }
 
@@ -851,6 +888,7 @@ const clearUpfield = (s: MatchState, p: Player) => {
   s.lastPasserId = null
   s.holdTime = 0
   s.kickCooldown = 0.3
+  endFreeKickPhase(s) // afastou de cabeça/alívio: encerra a fase do tiro livre
 }
 
 /**
@@ -914,6 +952,7 @@ const tryHeaderOnGoal = (s: MatchState, p: Player): boolean => {
  * sem firstTouch/composure/concentração. Senão, assume a posse.
  */
 const controlLoose = (s: MatchState, cand: Player) => {
+  endFreeKickPhase(s) // alguém tocou a bola: encerra a fase do tiro livre
   if (rand(s) < miscontrol(cand, len(s.ball.vel))) {
     const away = len(s.ball.vel) > 0.5 ? norm(s.ball.vel) : vec(rand(s) - 0.5, rand(s) - 0.5)
     s.ball.vel = scale(norm(away), CONTROL.squirtSpeed)
@@ -1126,6 +1165,7 @@ const placeDeadBall = (
   s.goalKick = false // só o tiro de meta marca true (ver `goalKick`)
   s.throwIn = false // só o arremesso lateral marca true (ver `throwIn`)
   s.freeKick = false // só o tiro livre marca true (ver `setupFreeKick`)
+  endFreeKickPhase(s) // some barreira/janela anteriores; o tiro livre repõe a sua
   s.penalty = false
   s.controllerId = taker.id
   s.lastTouchId = taker.id
@@ -1275,6 +1315,7 @@ const scoreGoal = (s: MatchState, conceded: TeamId, goalX: number) => {
   s.controllerId = null
   s.possession = null
   s.lastPasserId = null
+  endFreeKickPhase(s)
 
   // ponto da comemoração: escanteio do gol, do lado em que a bola entrou
   const side = s.ball.pos.y < FIELD.cy ? CELEBRATION.spotSide : FIELD.h - CELEBRATION.spotSide
@@ -1411,6 +1452,7 @@ export const step = (s: MatchState, dt: number): void => {
 
   s.kickCooldown = Math.max(0, s.kickCooldown - dt)
   s.tackleCooldown = Math.max(0, s.tackleCooldown - dt)
+  s.fkShotTimer = Math.max(0, s.fkShotTimer - dt)
 
   // ----- BOLA PARADA (cobrança de falta / lateral / pênalti) -----
   if (s.deadball > 0) {
@@ -1525,6 +1567,9 @@ export const step = (s: MatchState, dt: number): void => {
       if (action.type === 'shoot') {
         s.stats[carrier.team].shots++
         s.lastShooterId = carrier.id
+        // CHUTE DIRETO de falta: abre a janela em que só o goleiro o defende (os
+        // jogadores de linha não cabeceiam o petardo enquadrado; ver ballCandidate)
+        if (s.freeKick) s.fkShotTimer = FREEKICK.shotWindow
         // distância ao gol no instante do chute — rotula golaço de longe
         s.lastShotDist = dist(carrier.pos, vec(attackingGoalX(s.attackDir[carrier.team]), FIELD.cy))
         addEvent(s, 'shot', carrier.team, `Chute de ${carrier.name}!`)

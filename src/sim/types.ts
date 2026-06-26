@@ -218,6 +218,16 @@ export interface MatchState {
   /** o reinício atual é um TIRO LIVRE (falta fora da área) → o cobrador bate
    *  DIRETO ao gol, LANÇA na área ou recompõe, e a defesa arma a barreira (Lei 13) */
   freeKick: boolean
+  /** ids dos defensores que formam a BARREIRA do tiro livre (Lei 13). Fonte única:
+   *  a IA os posiciona em leque e o motor os deixa BLOQUEAR rasteiro (corpo) mas
+   *  NÃO cabecear a bola alçada por cima — o chute por cima do paredão é do goleiro.
+   *  Vazio fora de um tiro livre perigoso; some quando a jogada se resolve. */
+  wallIds: number[]
+  /** tempo (s) restante em que um CHUTE DIRETO de falta está "no ar" rumo ao gol:
+   *  enquanto corre, os jogadores de LINHA não cabeceiam/abafam a bola alta (só o
+   *  goleiro defende, ou ela bate na barreira rasteira / entra / sai) — um petardo
+   *  enquadrado não é "aliviado" de cabeça por um zagueiro qualquer. */
+  fkShotTimer: number
   /** cobrança de pênalti em andamento → todos aguardam fora da área até o chute */
   penalty: boolean
   /** acréscimos do tempo atual (s de jogo), somados por gol/falta/cartão; zera a cada tempo */

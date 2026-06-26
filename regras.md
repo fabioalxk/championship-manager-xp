@@ -33,6 +33,11 @@ bola. Complementa o `melhorias.md` (features grandes) e o `melhorias2.md`
 >   posição — bate DIRETO ao gol (perto/ângulo), LANÇA na área (avançado/fechado)
 >   ou recompõe com um passe (longe). Nem todo atordoamento é falta: o desarme
 >   LIMPO só faz tropeçar (sem apito); só o bote que erra a bola e derruba é falta.
+>   O CHUTE DIRETO é COLOCADO por cima da barreira (no canto oposto ao 1º pau, que
+>   fica pro goleiro): a barreira tapa o poste e bloqueia rasteiro, mas não cabeceia
+>   o petardo enquadrado — esse é do goleiro, que defende bem (bola parada, postado).
+>   Conversão calibrada na faixa REAL via `tools/freekick-sim.ts`: ~7% para bons
+>   batedores, ~5% no geral, com pico na zona de 22-26 m (cai perto demais/longe).
 
 ---
 
