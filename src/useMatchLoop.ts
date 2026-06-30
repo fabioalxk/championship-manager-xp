@@ -6,10 +6,17 @@ import type {
   MatchStatus,
   TeamStats,
 } from './sim/types'
+import type { Rosters } from './sim/formation'
 import { MATCH, PHYS } from './sim/constants'
 import { createMatch, step, stepCelebration } from './sim/engine'
-import { drawMatch } from './render/renderer'
+import { drawMatch, setMatchKits } from './render/renderer'
 import { goalRoar } from './sfx/crowd'
+
+/** Configuração opcional da partida (modo carreira): elencos e cores reais. */
+export interface MatchSetup {
+  rosters?: Rosters
+  kits?: Record<'home' | 'away', { shirt: string; text: string }>
+}
 
 export interface Hud {
   home: number
@@ -45,8 +52,10 @@ const snapshot = (m: MatchState): Hud => ({
 export const useMatchLoop = (
   canvasRef: React.RefObject<HTMLCanvasElement>,
   scale: number,
+  setup?: MatchSetup,
 ) => {
-  const matchRef = useRef<MatchState>(createMatch())
+  const setupRef = useRef(setup)
+  const matchRef = useRef<MatchState>(createMatch(setup?.rosters))
   const runningRef = useRef(true)
   const speedRef = useRef(3)
 
@@ -56,6 +65,12 @@ export const useMatchLoop = (
 
   useEffect(() => void (runningRef.current = running), [running])
   useEffect(() => void (speedRef.current = speed), [speed])
+
+  // cores dos uniformes (carreira) — aplica ao montar e limpa ao desmontar
+  useEffect(() => {
+    setMatchKits(setup?.kits ?? null)
+    return () => setMatchKits(null)
+  }, [setup])
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d')
@@ -122,7 +137,7 @@ export const useMatchLoop = (
   }, [canvasRef, scale])
 
   const reset = () => {
-    matchRef.current = createMatch()
+    matchRef.current = createMatch(setupRef.current?.rosters)
     setHud(snapshot(matchRef.current))
   }
 

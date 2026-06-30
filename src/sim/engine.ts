@@ -40,6 +40,7 @@ import {
   defendingGoalX,
   homePos,
   inPenaltyArea,
+  type Rosters,
 } from './formation'
 import { decideAction, desiredTarget, engagement } from './ai'
 import {
@@ -133,9 +134,9 @@ const addEvent = (
 }
 
 /** Cria uma partida nova: Brasil ataca para a direita no 1º tempo. */
-export const createMatch = (): MatchState => {
+export const createMatch = (rosters?: Rosters): MatchState => {
   const s: MatchState = {
-    players: buildPlayers(),
+    players: buildPlayers(rosters),
     ball: {
       pos: vec(FIELD.cx, FIELD.cy),
       vel: vec(0, 0),
@@ -490,7 +491,16 @@ const tryTackle = (s: MatchState) => {
   const read = nrm(def.attrs.anticipation) * 0.5 + nrm(def.attrs.positioning) * 0.5
   const beatProb = clamp(DUEL.beatBase + (beat - read) * DUEL.beatSwing, 0, DUEL.beatCap)
   if (rand(s) < beatProb) {
-    s.tackleCooldown = DUEL.cooldown * 2
+    // PASSOU! O marcador mordeu e ficou DESEQUILIBRADO (perde o tempo do lance) —
+    // é isso que abre o espaço de verdade; bom equilíbrio o recupera mais rápido.
+    def.stun = DUEL.beatStun * (1 - footing(def.attrs) * DUEL.beatStunBalance)
+    // o conduto dá um toque de arranque e EXPLODE pelo vão rumo ao gol: ganha uma
+    // janela curta de condução acima do ritmo normal (não fica colado no zagueiro).
+    carrier.burst = DUEL.beatBurstTime
+    const fwd = dirTo(carrier.pos, vec(attackingGoalX(s.attackDir[carrier.team]), FIELD.cy))
+    carrier.vel = add(carrier.vel, scale(fwd, maxSpeed(carrier) * (DUEL.beatBurst - 1) * 0.5))
+    s.tackleCooldown = DUEL.cooldown * DUEL.beatTackleGap
+    addEvent(s, 'dribble', carrier.team, `Drible de ${carrier.name} — passou por ${def.name}!`)
     return
   }
 
@@ -1443,6 +1453,7 @@ export const step = (s: MatchState, dt: number): void => {
     }
     p.energy = clamp(p.energy, STAMINA.floor, 1)
     if (p.stun > 0) p.stun = Math.max(0, p.stun - dt)
+    if (p.burst > 0) p.burst = Math.max(0, p.burst - dt)
 
     // transições visuais suaves (sem trocar de estado de repente):
     // realce de "dono da bola" e o "cair/levantar" surgem/somem com fade.
@@ -1589,8 +1600,10 @@ export const step = (s: MatchState, dt: number): void => {
   // ----- MOVIMENTO -----
   for (const p of s.players) {
     if (s.controllerId === p.id && dribbleDir && p.role !== 'GK') {
-      // melhores dribladores conduzem mais rápido sem perder a bola
-      steer(p, add(p.pos, scale(dribbleDir, 6)), dt, maxSpeed(p) * dribbleSpeedMul(p.attrs), 0.3)
+      // melhores dribladores conduzem mais rápido sem perder a bola; logo após
+      // PASSAR pelo marcador (burst), explode acima do ritmo por um átimo.
+      const burstMul = p.burst > 0 ? DUEL.beatBurst : 1
+      steer(p, add(p.pos, scale(dribbleDir, 6)), dt, maxSpeed(p) * dribbleSpeedMul(p.attrs) * burstMul, 0.3)
     } else {
       // o goleiro com a bola não sai conduzindo: segura perto do gol (itens 32, 48)
       advancePlayer(s, p, dt)

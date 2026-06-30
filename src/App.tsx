@@ -297,8 +297,8 @@ export default function App() {
           Velocidade: {speed}×
           <input
             type="range"
-            min={1}
-            max={8}
+            min={3}
+            max={18}
             step={1}
             value={speed}
             onChange={(e) => setSpeed(Number(e.target.value))}

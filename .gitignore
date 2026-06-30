@@ -6,6 +6,10 @@ dist/
 dist-ssr/
 *.tsbuildinfo
 
+# Test runner temp output
+.test-build/
+.tmp-*
+
 # Logs
 *.log
 npm-debug.log*

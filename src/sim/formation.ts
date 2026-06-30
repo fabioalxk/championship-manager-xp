@@ -1,6 +1,12 @@
 import type { Dir, Player, TeamId, Vec2 } from './types'
 import { AREA, FIELD } from './constants'
-import { rosterFor } from './teams'
+import { rosterFor, type SeedPlayer } from './teams'
+
+/** Elencos customizados (modo carreira). Ausente → usa Brasil×Argentina da demo. */
+export interface Rosters {
+  home: SeedPlayer[]
+  away: SeedPlayer[]
+}
 
 /**
  * Posição-âncora real do jogador conforme a direção de ataque do time.
@@ -26,8 +32,13 @@ export const inPenaltyArea = (pos: Vec2, goalX: number): boolean => {
   return inX && Math.abs(pos.y - FIELD.cy) <= AREA.penaltyHalfWidth
 }
 
-const buildTeam = (team: TeamId, idOffset: number, dir: Dir): Player[] =>
-  rosterFor(team).map((s, i) => {
+const buildTeam = (
+  team: TeamId,
+  idOffset: number,
+  dir: Dir,
+  roster: SeedPlayer[] = rosterFor(team),
+): Player[] =>
+  roster.map((s, i) => {
     const p: Player = {
       id: idOffset + i,
       number: s.number,
@@ -43,6 +54,7 @@ const buildTeam = (team: TeamId, idOffset: number, dir: Dir): Player[] =>
       settled: false,
       energy: 1,
       stun: 0,
+      burst: 0,
       downAmt: 0,
       ctrlAmt: 0,
       yellow: false,
@@ -54,8 +66,8 @@ const buildTeam = (team: TeamId, idOffset: number, dir: Dir): Player[] =>
     return p
   })
 
-/** Gera os 22 jogadores. No 1º tempo o Brasil (home) ataca para a direita. */
-export const buildPlayers = (): Player[] => [
-  ...buildTeam('home', 0, 1),
-  ...buildTeam('away', 100, -1),
+/** Gera os 22 jogadores. No 1º tempo o time da casa ataca para a direita. */
+export const buildPlayers = (rosters?: Rosters): Player[] => [
+  ...buildTeam('home', 0, 1, rosters?.home),
+  ...buildTeam('away', 100, -1, rosters?.away),
 ]

@@ -84,6 +84,8 @@ export interface Player {
   energy: number
   /** tempo (s) atordoado após perder a bola — fica parado se > 0 */
   stun: number
+  /** janela (s) de ARRANQUE pós-drible: conduz acima do ritmo por um átimo (explode pelo espaço) */
+  burst: number
   /** quão "caído" está 0..1 (transição suave entre em pé e no chão) */
   downAmt: number
   /** quão "dono da bola" está 0..1 (fade do realce do controlador) */
@@ -119,6 +121,7 @@ export type EventType =
   | 'foul'
   | 'card'
   | 'tackle'
+  | 'dribble'
   | 'half'
   | 'kickoff'
   | 'goalkick'

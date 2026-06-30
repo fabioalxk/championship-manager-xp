@@ -670,9 +670,19 @@ export const DUEL = {
   cooldown: 0.5,
   /** drible 1v1 (passar pelo marcador antes do duelo): base, peso do confronto
    *  drible/agilidade × leitura do defensor, e teto (defesa ainda funciona) */
-  beatBase: 0.16,
-  beatSwing: 0.7,
-  beatCap: 0.62,
+  beatBase: 0.18,
+  beatSwing: 0.75,
+  beatCap: 0.66,
+  /** PASSOU: o defensor mordeu e ficou desequilibrado por um átimo (s) — é o que
+   *  abre o espaço de verdade; o bom equilíbrio (balance) encurta essa recuperação */
+  beatStun: 0.55,
+  beatStunBalance: 0.45,
+  /** ARRANQUE do conduto ao passar: multiplica o teto de velocidade da condução
+   *  por uma janela curta (s) — o craque EXPLODE pelo vão deixado pelo marcador */
+  beatBurst: 1.5,
+  beatBurstTime: 0.8,
+  /** folga (× cooldown) antes do próximo bote depois de um drible bem-sucedido */
+  beatTackleGap: 3,
   /** chance-base de desarme bem-sucedido por tentativa */
   baseWin: 0.5,
   /** peso da diferença de poder (desarme×condução) na chance de roubada */

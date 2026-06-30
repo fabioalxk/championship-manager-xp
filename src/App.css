@@ -725,6 +725,9 @@
 .feed .ev.save {
   border-color: #38bdf8;
 }
+.feed .ev.dribble {
+  border-color: #a855f7;
+}
 .feed .ev.half,
 .feed .ev.fulltime,
 .feed .ev.kickoff,

@@ -15,7 +15,7 @@ export const TEAMS: Record<TeamId, TeamInfo> = {
 }
 
 /** Slots da formação 4-3-3 (coordenadas "atacando para a DIREITA"), em metros. */
-const FORMATION_433: Vec2[] = [
+export const FORMATION_433: Vec2[] = [
   { x: 5, y: 34 }, // GK
   { x: 20, y: 12 }, // RB
   { x: 17, y: 27 }, // CB
@@ -29,12 +29,12 @@ const FORMATION_433: Vec2[] = [
   { x: 72, y: 53 }, // PE
 ]
 
-const ROLES_433: Role[] = [
+export const ROLES_433: Role[] = [
   'GK', 'DEF', 'DEF', 'DEF', 'DEF', 'MID', 'MID', 'MID', 'FWD', 'FWD', 'FWD',
 ]
 
 /** Base de atributos por posição (escala 0..100); cada jogador sobrescreve o que se destaca. */
-const baseAttrs = (role: Role): Attrs => {
+export const baseAttrs = (role: Role): Attrs => {
   const b: Attrs = {
     // físico
     pace: 65, acceleration: 65, agility: 62, balance: 62, jumping: 60,

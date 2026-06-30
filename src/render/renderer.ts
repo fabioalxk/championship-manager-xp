@@ -1,7 +1,21 @@
-import type { MatchState, Player } from '../sim/types'
+import type { MatchState, Player, TeamId } from '../sim/types'
 import { AIR, FIELD, GOAL, PHYS } from '../sim/constants'
 import { TEAMS } from '../sim/teams'
 import { len, lerpV, norm, perp } from '../sim/vector'
+
+/**
+ * Sobrescrita de cores dos uniformes (modo carreira: clubes reais). Quando
+ * definida, substitui as cores do TEAMS (Brasil/Argentina da demo). null = demo.
+ */
+let kitOverride: Record<TeamId, { shirt: string; text: string }> | null = null
+export const setMatchKits = (
+  kits: Record<TeamId, { shirt: string; text: string }> | null,
+): void => {
+  kitOverride = kits
+}
+/** Cores do uniforme de linha do time (carreira sobrepõe a demo). */
+const kitInfo = (team: TeamId): { shirt: string; text: string } =>
+  kitOverride ? kitOverride[team] : TEAMS[team]
 
 /** margem (m) ao redor do campo, para desenhar redes e arquibancada */
 export const PAD = 4
@@ -170,7 +184,7 @@ const drawCelebration = (
   scale: number,
 ) => {
   const c = state.celebration!
-  const accent = TEAMS[c.team].shirt
+  const accent = kitInfo(c.team).shirt
   const pulse = 0.5 + 0.5 * Math.sin(c.t * 9)
 
   // realça a rede do gol sofrido
@@ -214,7 +228,7 @@ const drawCelebration = (
   ctx.restore()
 
   drawFlashbulbs(ctx, c.t, scale)
-  drawConfetti(ctx, c.t, accent, TEAMS[c.team].text, scale)
+  drawConfetti(ctx, c.t, accent, kitInfo(c.team).text, scale)
 }
 
 /**
@@ -651,7 +665,7 @@ const drawPlayer = (
   const ip = lerpV(p.prevPos, p.pos, alpha)
   const cx = px(ip.x)
   const cyGround = px(ip.y)
-  const info = TEAMS[p.team]
+  const info = kitInfo(p.team)
   // goleiro usa uniforme próprio (contraste), jogador de linha usa o do time
   const kit = p.role === 'GK' ? GK_KITS[p.team] : info
   const down = p.downAmt // 0..1 (transição suave em pé ↔ caído)
@@ -742,7 +756,8 @@ const drawPlayer = (
 
   // 3b) estampa do uniforme (identidade do time) recortada no domo — sob o
   //     brilho e o número p/ não perder o aspecto de acrílico.
-  const pat = p.role !== 'GK' ? KIT_PATTERN[p.team] : 'solid'
+  // na carreira (clubes reais) o uniforme é liso; a demo usa os padrões fixos
+  const pat = kitOverride || p.role === 'GK' ? 'solid' : KIT_PATTERN[p.team]
   if (pat === 'stripes') {
     ctx.save()
     ctx.beginPath()
@@ -789,8 +804,8 @@ const drawPlayer = (
     ctx.restore()
   }
 
-  // 4c) braçadeira de capitão: pequeno arco dourado na quina do botão
-  if (CAPTAINS[p.team] === p.number && down < 0.5) {
+  // 4c) braçadeira de capitão: pequeno arco dourado na quina do botão (só na demo)
+  if (!kitOverride && CAPTAINS[p.team] === p.number && down < 0.5) {
     ctx.save()
     ctx.globalAlpha = 1 - down
     ctx.lineWidth = Math.max(1.5, scale * 0.36)
