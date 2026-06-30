@@ -89,4 +89,25 @@ matrix(
   (r, c) => pctMC(N, () => aerialWin(A({ jumping: r }), A({ jumping: c }))),
 )
 
+// 6) TAXA DE DEFESA do GK em chutes NO ALVO — localiza a conversão alta.
+//    Real: goleiro segura ~65-75% dos chutes ENQUADRADOS. Mistura de distâncias.
+console.log('\n### 6. TAXA DE DEFESA do GK (% dos chutes NO ALVO que ele PEGA)')
+console.log('   finalizador 50 · distâncias 8-24m sorteadas · real ~65-75%')
+console.log('   GK:        30     50     70     90')
+const shooter = A({ finishing: 50, longShots: 50, strength: 70 })
+const saveRates = [30, 50, 70, 90].map((gk) => {
+  let onTarget = 0, saved = 0
+  const G = A({ goalkeeping: gk, reflexes: gk, handling: gk, oneOnOne: gk, positioning: gk })
+  for (let i = 0; i < N; i++) {
+    const d = 8 + Math.floor(Math.random() * 17) // 8..24m
+    const r = shotResult(shooter, G, d, false)
+    if (r === 'off') continue
+    onTarget++
+    if (r === 'saved') saved++
+  }
+  return (saved / onTarget) * 100
+})
+console.log('   defesa%: ' + saveRates.map((v) => v.toFixed(1).padStart(6) + '%').join(' '))
+console.log('   (se um GK 50 segura bem menos que ~65%, a fórmula de defesa está fraca → conversão alta)')
+
 console.log('\n✅ Lê assim: cada célula é a % do confronto direto. Veja se cai/sobe na direção certa.')

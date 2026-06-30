@@ -57,10 +57,10 @@ export const useMatchLoop = (
   const setupRef = useRef(setup)
   const matchRef = useRef<MatchState>(createMatch(setup?.rosters))
   const runningRef = useRef(true)
-  const speedRef = useRef(3)
+  const speedRef = useRef(1.5)
 
   const [running, setRunning] = useState(true)
-  const [speed, setSpeed] = useState(3)
+  const [speed, setSpeed] = useState(1.5)
   const [hud, setHud] = useState<Hud>(() => snapshot(matchRef.current))
 
   useEffect(() => void (runningRef.current = running), [running])

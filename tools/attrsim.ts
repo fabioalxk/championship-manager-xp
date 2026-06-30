@@ -3,7 +3,7 @@
  * atributo (30/50/70/90), resto em 50, e mede uma métrica do motor. Os duelos
  * vivem em _simlib.ts (fonte única). Confrontos 2-lados ficam em confrontos.ts.
  */
-import { DUEL, STAMINA } from '../src/sim/constants'
+import { AI, DUEL, STAMINA } from '../src/sim/constants'
 import {
   chaseLead, crossSpread, flairSpin, footing, gkHoldChance, gkKickReach, gkReach,
   gkThrowSpeed, holdMax, markPull, maxSpeed, miscontrol, nrm, offBallAdvance,
@@ -109,7 +109,22 @@ sweep('aggression', 'cartões/100 botes', (l) => pctMC(N, () => { const r = foul
 sweep('bravery', '% ganha 50/50', (l) => pctMC(N, () => cushions(A({ bravery: l }), false, 12)))
 sweep('teamwork', 'bloco 0..1', (l) => shapeMul(A({ teamwork: l })), { fmt: (v) => v.toFixed(2) })
 sweep('flair', 'efeito curva', (l) => flairSpin(A({ flair: l })), { fmt: (v) => v.toFixed(2) })
-console.log('  vision         (seleção de passe — lógica de IA, não probabilística; ver checklist)')
+sweep('vision', '% passe progress', (l) => {
+  // reproduz o score de bestPass (ai.ts): vision repondera forward/lane. Mede
+  // quantas vezes escolhe o passe PROGRESSIVO (enfia pra frente) vs o SEGURO (lado).
+  const vis = nrm(l), dec = 0.5
+  const optScore = (forward: number, free: number, lane: number) => {
+    const risk = forward * Math.max(0, AI.laneSafe - lane) * AI.decisionRisk
+    return forward * (0.6 + vis * AI.visionForward) +
+      free * (0.6 + dec * AI.decisionSafe) +
+      Math.min(lane, AI.laneSafe) * AI.laneWeight * (0.6 + vis * AI.visionLane) - risk * dec
+  }
+  return pctMC(N, () => {
+    const pF = 6 + rnd() * 6, pL = 1.5 + rnd() * 1.2, pFree = 1.5 + rnd() * 2 // progressivo, lane apertada
+    const sF = 1 + rnd() * 4, sL = 4 + rnd(), sFree = 7 + rnd() * 5 // seguro, lane limpa, MUITO espaço
+    return optScore(pF, pFree, pL) > optScore(sF, sFree, sL)
+  })
+})
 
 sec('GOLEIRO')
 sweep('goalkeeping', '% defende', (l) => pctMC(N, () => shotResult(A({}), A({ goalkeeping: l }), 16, false) === 'saved'))

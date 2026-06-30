@@ -93,10 +93,13 @@ export const AREA = {
 }
 
 export const MATCH = {
-  /** duração de cada tempo em segundos de JOGO */
+  /** duração de cada tempo em segundos de JOGO (45 min/tempo = 90' no total). */
   halfSeconds: 45 * 60,
-  /** segundos de JOGO por segundo de física (relógio corre acelerado) */
-  clockRate: 8,
+  /** segundos de JOGO que o RELÓGIO avança por segundo de física. É o knob da
+   *  velocidade DO RELÓGIO da partida — NÃO mexe na movimentação dos jogadores
+   *  (isso é o multiplicador de velocidade). Com 40 e o Normal (1.5x), o relógio
+   *  anda ~60s de jogo por segundo real ≈ 1 minuto a cada segundo. */
+  clockRate: 40,
 }
 
 /**

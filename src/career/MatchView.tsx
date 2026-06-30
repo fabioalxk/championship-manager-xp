@@ -1,5 +1,5 @@
-import { useMemo, useRef } from 'react'
-import { canvasSize } from '../render/renderer'
+import { useEffect, useMemo, useRef } from 'react'
+import { canvasSize, setLabelsUpright } from '../render/renderer'
 import { useMatchLoop, type MatchSetup } from '../useMatchLoop'
 import { primeAudio } from '../sfx/crowd'
 import type { CareerState } from '../game/types'
@@ -13,9 +13,9 @@ const SCALE = 7
 
 /** Velocidades nomeadas — mais claras que "3× 9× 18×". */
 const SPEEDS: [string, number][] = [
-  ['Normal', 4],
-  ['Rápido', 9],
-  ['Turbo', 18],
+  ['Normal', 1.5],
+  ['Rápido', 4],
+  ['Turbo', 6],
 ]
 
 const fmtClock = (sec: number) => {
@@ -60,6 +60,19 @@ export default function MatchView({
     }),
     [homeClub, awayClub, kits],
   )
+
+  // Em retrato (celular) o campo gira 90° no CSS; avisa o renderer p/ manter os
+  // rótulos (número e nome) na vertical. Acompanha a rotação do aparelho.
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: portrait)')
+    const sync = () => setLabelsUpright(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => {
+      mq.removeEventListener('change', sync)
+      setLabelsUpright(false)
+    }
+  }, [])
 
   const { hud, running, setRunning, speed, setSpeed } = useMatchLoop(canvasRef, SCALE, setup)
   const size = canvasSize(SCALE)

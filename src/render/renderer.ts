@@ -17,6 +17,40 @@ export const setMatchKits = (
 const kitInfo = (team: TeamId): { shirt: string; text: string } =>
   kitOverride ? kitOverride[team] : TEAMS[team]
 
+/**
+ * Em telas retrato (celular) o canvas é girado 90° no CSS p/ o campo landscape
+ * preencher a altura do aparelho — mas isso deita TODO o conteúdo, inclusive os
+ * rótulos (número e nome). Com este flag ligado, esses textos são contra-girados
+ * no desenho para continuarem legíveis na horizontal. null/false = sem giro.
+ */
+let labelsUpright = false
+export const setLabelsUpright = (v: boolean): void => {
+  labelsUpright = v
+}
+
+/**
+ * Desenha `body` com o contexto contra-girado −90° em torno do pivô (x,y), de
+ * modo que o conteúdo fique na vertical mesmo com o canvas girado +90° no CSS.
+ * Sem o flag, executa `body` sem alteração (campo na horizontal, desktop).
+ */
+const uprightLabel = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  body: () => void,
+): void => {
+  if (!labelsUpright) {
+    body()
+    return
+  }
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(-Math.PI / 2)
+  ctx.translate(-x, -y)
+  body()
+  ctx.restore()
+}
+
 /** margem (m) ao redor do campo, para desenhar redes e arquibancada */
 export const PAD = 4
 
@@ -862,10 +896,12 @@ const drawPlayer = (
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   const num = String(p.number)
-  ctx.fillStyle = 'rgba(255,255,255,0.35)'
-  ctx.fillText(num, cx, cy + Math.max(0.6, scale * 0.06))
-  ctx.fillStyle = kit.text
-  ctx.fillText(num, cx, cy)
+  uprightLabel(ctx, cx, cy, () => {
+    ctx.fillStyle = 'rgba(255,255,255,0.35)'
+    ctx.fillText(num, cx, cy + Math.max(0.6, scale * 0.06))
+    ctx.fillStyle = kit.text
+    ctx.fillText(num, cx, cy)
+  })
   ctx.restore()
 
   // marca de "caído" — aparece junto com a transição
@@ -886,29 +922,38 @@ const drawPlayer = (
   ctx.globalAlpha = 1 - down * 0.5
   ctx.font = `600 ${Math.round(scale * 1.12)}px "Segoe UI", Roboto, sans-serif`
   ctx.textBaseline = 'middle'
-  const ny = cy + r + scale * 1.9
+  const gap = r + scale * 1.9
   const dot = scale * 0.5
   const padX = scale * 0.55
   const tw = ctx.measureText(p.name).width
   const ph2 = scale * 1.7
   const pw2 = tw + padX * 2 + dot + scale * 0.3
-  const plx = cx - pw2 / 2
-  // fundo da pílula
-  roundedRectPath(ctx, plx, ny - ph2 / 2, pw2, ph2, ph2 / 2)
-  ctx.fillStyle = 'rgba(8,12,22,0.66)'
-  ctx.fill()
-  ctx.lineWidth = 1
-  ctx.strokeStyle = 'rgba(255,255,255,0.14)'
-  ctx.stroke()
-  // ponto da cor do time
-  ctx.beginPath()
-  ctx.arc(plx + padX + dot / 2, ny, dot / 2, 0, Math.PI * 2)
-  ctx.fillStyle = kit.shirt
-  ctx.fill()
-  // nome
-  ctx.textAlign = 'left'
-  ctx.fillStyle = '#f1f5f9'
-  ctx.fillText(p.name, plx + padX + dot + scale * 0.3, ny + scale * 0.05)
+  // Centro da pílula. No desktop fica abaixo do botão (canvas +y). No celular o
+  // canvas é girado +90° no CSS, então "abaixo na tela" corresponde a canvas +x:
+  // posicionar à direita aqui faz a placa cair logo abaixo do botão na tela,
+  // igual ao landscape, sem subir por cima do jogador.
+  const lcx = labelsUpright ? cx + gap : cx
+  const lcy = labelsUpright ? cy : cy + gap
+  const plx = lcx - pw2 / 2
+  // gira a pílula inteira (fundo, ponto e nome) p/ ficar legível no celular
+  uprightLabel(ctx, lcx, lcy, () => {
+    // fundo da pílula
+    roundedRectPath(ctx, plx, lcy - ph2 / 2, pw2, ph2, ph2 / 2)
+    ctx.fillStyle = 'rgba(8,12,22,0.66)'
+    ctx.fill()
+    ctx.lineWidth = 1
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)'
+    ctx.stroke()
+    // ponto da cor do time
+    ctx.beginPath()
+    ctx.arc(plx + padX + dot / 2, lcy, dot / 2, 0, Math.PI * 2)
+    ctx.fillStyle = kit.shirt
+    ctx.fill()
+    // nome
+    ctx.textAlign = 'left'
+    ctx.fillStyle = '#f1f5f9'
+    ctx.fillText(p.name, plx + padX + dot + scale * 0.3, lcy + scale * 0.05)
+  })
   ctx.restore()
 }
 

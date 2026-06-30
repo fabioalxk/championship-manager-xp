@@ -863,24 +863,34 @@ body {
   margin-left: auto;
 }
 
-/* Em telas retrato o campo gira 90°: aproveita a altura do celular. */
+/* Em telas retrato o campo gira 90°: aproveita a altura do celular.
+   O dimensionamento é baseado no GRAMADO (68m), não no canvas cheio (76m): a
+   faixa de arquibancada nas laterais transborda e é cortada (overflow hidden),
+   de modo que a grama enche toda a largura útil do aparelho — fica bem maior.
+   Os gols ficam nas PONTAS DO COMPRIMENTO, então nunca são cortados. */
 @media (orientation: portrait) {
   .cm-match {
     max-width: none;
-    padding: 8px;
+    padding: 6px 0 0;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: flex-start;
+    gap: 4px;
+  }
+  .cm-scoreboard,
+  .cm-match-controls {
+    border-radius: 0;
+    padding: 10px 12px;
   }
   .cm-pitch {
-    height: min(calc(94vw * 113 / 76), 74vh);
+    height: min(calc(99vw * 113 / 68), 88vh);
     align-items: center;
   }
   .cm-pitch-canvas {
     width: auto;
     max-width: none;
-    height: min(94vw, calc(74vh * 76 / 113));
+    height: min(calc(99vw * 76 / 68), calc(88vh * 76 / 113));
     transform: rotate(90deg);
   }
 }
