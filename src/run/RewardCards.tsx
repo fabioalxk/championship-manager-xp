@@ -1,13 +1,12 @@
+import type { Attrs } from '../sim/types'
 import type { RunState } from '../game/runTypes'
-import { pickReward } from '../game/run'
+import { POTION_BOOST, POTION_INFO, claimPotion, pickReward } from '../game/run'
+import { potionSfx } from '../sfx/crowd'
 import { GK_ONLY } from '../sim/chaos'
-import { ATTR_GROUPS, ROLE_LABEL, attrColor } from '../ui/attrDisplay'
+import { ROLE_LABEL, attrColor, attrLabel } from '../ui/attrDisplay'
+import { GiftIcon, PotionIcon } from '../ui/icons'
 import type { GenPlayer } from '../game/types'
 import type { RunApi } from './useRun'
-
-const ATTR_LABEL: Record<string, string> = Object.fromEntries(
-  ATTR_GROUPS.flatMap((g) => g.keys.map((k) => [k.key, k.label])),
-)
 
 /**
  * Os 2 atributos mais fortes e os 2 mais fracos — deixa o CONTRASTE do jogador
@@ -28,7 +27,7 @@ function RewardCard({ p, onPick }: { p: GenPlayer; onPick: () => void }) {
   return (
     <button className="rc-card" onClick={onPick}>
       <div className="rc-card-head">
-        <span className="rc-card-role">{ROLE_LABEL[p.role]}</span>
+        <span className={`rc-card-role cm-role-${p.role.toLowerCase()}`}>{ROLE_LABEL[p.role]}</span>
         <span className="rc-card-ovr" style={{ color: attrColor(p.overall) }}>
           {p.overall}
         </span>
@@ -38,12 +37,12 @@ function RewardCard({ p, onPick }: { p: GenPlayer; onPick: () => void }) {
       <div className="rc-card-attrs">
         {best.map(([k, v]) => (
           <span key={k} className="rc-attr rc-attr-good">
-            ▲ {ATTR_LABEL[k] ?? k} {v}
+            ▲ {attrLabel(k as keyof Attrs)} {v}
           </span>
         ))}
         {worst.map(([k, v]) => (
           <span key={k} className="rc-attr rc-attr-bad">
-            ▼ {ATTR_LABEL[k] ?? k} {v}
+            ▼ {attrLabel(k as keyof Attrs)} {v}
           </span>
         ))}
       </div>
@@ -58,8 +57,29 @@ export default function RewardCards({ state, act }: { state: RunState; act: RunA
   return (
     <div className="cm-backdrop">
       <div className="rc-modal">
-        <h2>🎁 Reforço conquistado!</h2>
+        <h2>
+          <GiftIcon size={26} className="rq-h2-ico" /> Reforço conquistado!
+        </h2>
         <p className="cm-modal-sub">Escolha 1 dos 3 jogadores — ele entra no seu banco de reservas.</p>
+        {state.pendingPotion && (
+          <button
+            className={`rq-potion-earned rq-potion-${state.pendingPotion}`}
+            onClick={() => {
+              potionSfx()
+              act(claimPotion)
+            }}
+            title="Clique para guardar a poção no cabeçalho"
+          >
+            <PotionIcon kind={state.pendingPotion} size={30} className="rq-potion-earned-ico" />
+            <span className="rq-potion-earned-txt">
+              <strong>{POTION_INFO[state.pendingPotion].label}</strong>
+              <small>
+                +{POTION_BOOST} de {attrLabel(state.pendingPotion)} num titular, por 1 partida
+              </small>
+            </span>
+            <span className="rq-potion-grab">Pegar</span>
+          </button>
+        )}
         <div className="rc-grid">
           {state.pendingReward.map((p, i) => (
             <RewardCard key={p.id} p={p} onPick={() => act((s) => pickReward(s, i))} />

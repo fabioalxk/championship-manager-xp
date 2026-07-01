@@ -1,7 +1,6 @@
 import type { CareerState } from '../game/types'
 import { fmtMoney, signPlayer, SQUAD_MAX } from '../game/career'
-import { ROLE_LABEL, attrColor } from '../ui/attrDisplay'
-import { PlayerAvatar } from '../ui/PlayerAvatar'
+import { MarketPlayerCard } from '../ui/MarketPlayerCard'
 import type { CareerApi } from './useCareer'
 
 /**
@@ -24,32 +23,24 @@ export default function MarketView({ state, act }: { state: CareerState; act: Ca
         </span>
       </div>
       {market.length === 0 && <p className="cm-empty">Nenhum jogador disponível no momento.</p>}
-      <ul className="cm-market-list">
-        {market.map((m) => {
-          const afford = state.money >= m.fee && !full
-          return (
-            <li key={m.id} className="cm-market-row">
-              <span className="cm-squad-ovr" style={{ color: attrColor(m.overall) }}>
-                {m.overall}
-              </span>
-              <PlayerAvatar teamId={undefined} name={m.name} />
-              <span className="cm-market-name">
-                <strong>{m.name}</strong>
-                <small>
-                  {ROLE_LABEL[m.role]} · {m.age} anos
-                </small>
-              </span>
-              <span className="cm-market-fee">{fmtMoney(m.fee)}</span>
-              <button
-                className="cm-btn cm-btn-primary cm-btn-sm"
-                disabled={!afford}
-                onClick={() => act((s) => signPlayer(s, m.id))}
-              >
-                Contratar
-              </button>
-            </li>
-          )
-        })}
+      <ul className="mk-grid">
+        {market.map((m) => (
+          <MarketPlayerCard
+            key={m.id}
+            player={m}
+            price={fmtMoney(m.fee)}
+            action={{
+              label: 'Contratar',
+              disabled: state.money < m.fee || full,
+              title: full
+                ? `Elenco cheio (máximo ${SQUAD_MAX} jogadores)`
+                : state.money < m.fee
+                  ? 'Verba insuficiente'
+                  : undefined,
+              onClick: () => act((s) => signPlayer(s, m.id)),
+            }}
+          />
+        ))}
       </ul>
     </div>
   )

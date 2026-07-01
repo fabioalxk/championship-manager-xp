@@ -1,7 +1,8 @@
 import type { RunState } from '../game/runTypes'
-import { finishMatch, quickPlayNode, startingXI } from '../game/run'
+import { finishMatch, quickPlayNode, setFormation, startingXI } from '../game/run'
 import { ALL_CLUBS } from '../game/worldcup'
 import MatchPlayer from '../shared/MatchPlayer'
+import PotionsHud from './PotionsHud'
 import type { RunApi } from './useRun'
 
 /** Partida animada de um nó da corrida — fininho sobre `MatchPlayer` (compartilhado com a liga). */
@@ -9,7 +10,7 @@ export default function RunMatchView({ state, act }: { state: RunState; act: Run
   const node = state.nodes.find((n) => n.id === state.currentNodeId)
   if (!node || !node.opponent) return null
 
-  const home = { ...ALL_CLUBS[state.clubId], squad: startingXI(state) }
+  const home = { ...ALL_CLUBS[state.clubId], squad: startingXI(state), formation: state.formationSlots }
   const away = { ...ALL_CLUBS[node.opponent.clubId], squad: node.opponent.squad }
 
   return (
@@ -18,6 +19,8 @@ export default function RunMatchView({ state, act }: { state: RunState; act: Run
       away={away}
       onDone={(homeGoals, awayGoals) => act((s) => finishMatch(s, homeGoals, awayGoals))}
       onSkip={() => act((s) => quickPlayNode(s))}
+      onFormationChange={(slots) => act((s) => setFormation(s, slots))}
+      extraControls={(m) => <PotionsHud state={state} act={act} onOpenPicker={m.pause} />}
     />
   )
 }

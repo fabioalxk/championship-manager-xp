@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { canvasSize, setLabelsUpright } from '../render/renderer'
 import { useMatchLoop, type MatchSetup } from '../useMatchLoop'
 import { primeAudio } from '../sfx/crowd'
+import type { Vec2 } from '../sim/types'
 import type { GenPlayer } from '../game/types'
 import { lineupFor } from '../game/lineup'
 import { resolveKits } from '../game/kits'
+import { defaultFormation, formationName } from '../sim/formation'
 import { ClubBadge, type BadgeClub } from '../ui/ClubBadge'
 import { EventBanner } from '../ui/EventBanner'
+import FormationEditor from '../ui/FormationEditor'
+import { ClipboardIcon, PauseIcon, PlayIcon, SkipIcon, WhistleIcon } from '../ui/icons'
 import { MatchHistory } from './MatchHistory'
 
 const SCALE = 7
@@ -27,6 +31,8 @@ const fmtClock = (sec: number) => {
 export interface MatchSide extends BadgeClub {
   name: string
   squad: GenPlayer[]
+  /** Âncoras da formação tática; ausente → 4-3-3 padrão. */
+  formation?: Vec2[]
 }
 
 /**
@@ -41,14 +47,28 @@ export default function MatchPlayer({
   away,
   onDone,
   onSkip,
+  onFormationChange,
+  extraControls,
 }: {
   home: MatchSide
   away: MatchSide
   onDone: (homeGoals: number, awayGoals: number) => void
   /** se fornecido, mostra um botão "pular" que resolve a partida sem animação. */
   onSkip?: () => void
+  /**
+   * se fornecido, mostra o botão "Tática": pausa o jogo e abre o campinho para
+   * remodelar o esquema DURANTE a partida. A mudança vale na hora no motor e é
+   * repassada aqui para quem chama persistir (ex.: `formationSlots` da run).
+   */
+  onFormationChange?: (slots: Vec2[]) => void
+  /** controles extras na barra da partida (ex.: poções da run) — recebe `pause` p/ congelar o jogo. */
+  extraControls?: (m: { pause: () => void }) => ReactNode
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [tactics, setTactics] = useState(false)
+  // âncoras vigentes da partida — a fonte local enquanto o jogo roda
+  const [slots, setSlots] = useState<Vec2[]>(() => (home.formation ?? defaultFormation()).map((s) => ({ ...s })))
+  const wasRunning = useRef(true)
 
   // uniformes resolvidos: visitante troca p/ reserva se houver conflito de cor
   const kits = useMemo(
@@ -59,12 +79,16 @@ export default function MatchPlayer({
   // elencos, cores e nomes reais — memoizados p/ não recriar a partida a cada render
   const setup = useMemo<MatchSetup>(
     () => ({
-      rosters: { home: lineupFor(home.squad), away: lineupFor(away.squad) },
+      rosters: { home: lineupFor(home.squad, home.formation), away: lineupFor(away.squad, away.formation) },
       kits,
       names: { home: home.name, away: away.name },
     }),
     [home, away, kits],
   )
+
+  // titulares que entraram em campo, na ordem dos slots — congelados na criação
+  // da partida (o motor não re-escala no meio do jogo, o campinho tático também não)
+  const xi = useRef(setup.rosters!.home).current
 
   // Em retrato (celular) o campo gira 90° no CSS; avisa o renderer p/ manter os
   // rótulos (número e nome) na vertical. Acompanha a rotação do aparelho.
@@ -79,9 +103,24 @@ export default function MatchPlayer({
     }
   }, [])
 
-  const { hud, running, setRunning, speed, setSpeed } = useMatchLoop(canvasRef, SCALE, setup)
+  const { hud, running, setRunning, speed, setSpeed, setFormation } = useMatchLoop(canvasRef, SCALE, setup)
   const size = canvasSize(SCALE)
   const over = hud.status === 'over'
+
+  const changeFormation = (next: Vec2[]) => {
+    setSlots(next)
+    setFormation('home', next)
+    onFormationChange?.(next)
+  }
+  const openTactics = () => {
+    wasRunning.current = running
+    setRunning(false)
+    setTactics(true)
+  }
+  const closeTactics = () => {
+    setTactics(false)
+    setRunning(wasRunning.current)
+  }
 
   // No intervalo os times trocam de lado no campo (attackDir inverte no motor);
   // o placar acompanha, mantendo cada time do lado em que seu goleiro está.
@@ -93,6 +132,7 @@ export default function MatchPlayer({
     <div className="cm-match">
       <div className="cm-scoreboard">
         <span className="cm-sb-team">
+          <span className="cm-sb-stripe" style={{ background: left.side.shirt }} aria-hidden />
           <ClubBadge club={left.side} size={30} />
           <span className="cm-sb-name">{left.side.name}</span>
         </span>
@@ -104,6 +144,7 @@ export default function MatchPlayer({
         <span className="cm-sb-team cm-sb-team-away">
           <span className="cm-sb-name">{right.side.name}</span>
           <ClubBadge club={right.side} size={30} />
+          <span className="cm-sb-stripe" style={{ background: right.side.shirt }} aria-hidden />
         </span>
         <span className="cm-sb-clock">{over ? 'FIM' : fmtClock(hud.time)}</span>
       </div>
@@ -123,14 +164,40 @@ export default function MatchPlayer({
             resolveTeam={(t) => ({ shirt: t === 'home' ? home.shirt : away.shirt })}
           />
         )}
+        {tactics && !over && (
+          <div className="cm-match-over cm-tactics-over">
+            <div className="cm-tactics-panel">
+              <div className="cm-tactics-head">
+                <span className="tv-name">{formationName(slots)}</span>
+                <button className="cm-btn cm-btn-go cm-btn-sm" onClick={closeTactics}>
+                  Voltar ao jogo
+                </button>
+              </div>
+              <FormationEditor
+                slots={slots}
+                xi={xi}
+                onPreset={changeFormation}
+                onMove={(index, pos) => changeFormation(slots.map((s, j) => (j === index ? pos : s)))}
+              />
+            </div>
+          </div>
+        )}
         {over && (
           <div className="cm-match-over">
             <div>
-              <div className="cm-over-emoji">🏁</div>
+              <div className="cm-over-emoji">
+                <WhistleIcon size={44} />
+              </div>
               <h2>Fim de jogo</h2>
-              <p>
-                {home.name} <strong>{hud.home} × {hud.away}</strong> {away.name}
-              </p>
+              <div className="cm-over-score">
+                <span className="cm-over-team">{home.name}</span>
+                <strong>
+                  {hud.home}
+                  <small>×</small>
+                  {hud.away}
+                </strong>
+                <span className="cm-over-team">{away.name}</span>
+              </div>
               <button
                 className="cm-btn cm-btn-go cm-btn-lg cm-btn-block"
                 onClick={() => onDone(hud.home, hud.away)}
@@ -144,8 +211,12 @@ export default function MatchPlayer({
 
       {!over && (
         <div className="cm-match-controls">
-          <button className="cm-btn cm-btn-play-pause" onClick={() => setRunning(!running)}>
-            {running ? '⏸' : '▶'}
+          <button
+            className="cm-btn cm-btn-play-pause"
+            onClick={() => setRunning(!running)}
+            title={running ? 'Pausar' : 'Jogar'}
+          >
+            {running ? <PauseIcon size={16} /> : <PlayIcon size={16} />}
           </button>
           <div className="cm-speed">
             {SPEEDS.map(([label, s]) => (
@@ -158,9 +229,15 @@ export default function MatchPlayer({
               </button>
             ))}
           </div>
+          {onFormationChange && (
+            <button className="cm-btn cm-btn-sm" onClick={openTactics} title="Trocar a tática">
+              <ClipboardIcon size={13} className="cm-btn-ico-lead" /> Tática
+            </button>
+          )}
+          {extraControls?.({ pause: () => setRunning(false) })}
           {onSkip && (
             <button className="cm-btn cm-btn-ghost cm-btn-sm" onClick={onSkip}>
-              Pular ⏭
+              Pular <SkipIcon size={13} className="cm-btn-ico-trail" />
             </button>
           )}
         </div>

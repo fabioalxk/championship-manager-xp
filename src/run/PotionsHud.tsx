@@ -1,0 +1,132 @@
+import { useState } from 'react'
+import type { RunState } from '../game/runTypes'
+import { POTION_ATTR_CAP, POTION_BOOST, POTION_INFO, startingXI, usePotion } from '../game/run'
+import { overallOf } from '../game/overall'
+import { potionSfx } from '../sfx/crowd'
+import { RoleTag, attrColor, attrLabel } from '../ui/attrDisplay'
+import { PotionIcon } from '../ui/icons'
+import { PlayerAvatar } from '../ui/PlayerAvatar'
+import type { RunApi } from './useRun'
+
+/** Valor bufado pode passar de 100 — ganha destaque visual próprio. */
+const deltaColor = (v: number): string => (v > 100 ? '#4ade80' : attrColor(v))
+
+/**
+ * Inventário de poções no cabeçalho da run: cada frasco é um botão (pulsa quando
+ * usável, ou seja, no mapa) que abre um pop-up para escolher o titular que vai
+ * tomá-la — com o antes → depois do atributo e o ganho real de OVR por jogador.
+ * Enquanto o efeito dura (até o fim da próxima partida), um chip na cor da poção
+ * mostra quem está bufado e o valor turbinado.
+ */
+export default function PotionsHud({ state, act }: { state: RunState; act: RunApi['act'] }) {
+  const [picking, setPicking] = useState<number | null>(null)
+  const kind = picking !== null ? state.potions[picking] : undefined
+  const usable = state.status === 'map'
+
+  return (
+    <>
+      {state.activePotions.map((a, i) => {
+        const p = state.squad.find((pl) => pl.id === a.playerId)
+        if (!p) return null
+        return (
+          <span
+            key={`buff-${i}`}
+            className={`rq-potion-buff rq-potion-${a.attr}`}
+            title={`${p.name} está com +${a.amount} de ${attrLabel(a.attr)} até o fim da próxima partida`}
+          >
+            <PotionIcon kind={a.attr} size={15} />
+            {p.name.split(' ')[0]} {p.attrs[a.attr]}
+          </span>
+        )
+      })}
+      {state.potions.map((k, i) => (
+        <button
+          key={`potion-${i}`}
+          className={`rq-potion-chip rq-potion-${k}`}
+          disabled={!usable}
+          onClick={() => setPicking(i)}
+          title={`${POTION_INFO[k].label}: +${POTION_BOOST} de ${attrLabel(k)} num titular (pode passar de 100, teto ${POTION_ATTR_CAP}) até o fim da próxima partida${usable ? '' : ' — volte ao mapa para usar'}`}
+        >
+          <PotionIcon kind={k} size={21} />
+        </button>
+      ))}
+
+      {picking !== null && kind && (
+        <div className="cm-backdrop" onClick={() => setPicking(null)}>
+          <div
+            className={`cm-modal rq-potion-modal rq-potion-${kind}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="rq-potion-head">
+              <span className="rq-potion-head-ico" aria-hidden>
+                <PotionIcon kind={kind} size={32} />
+              </span>
+              <div>
+                <h2>{POTION_INFO[kind].label}</h2>
+                <p>
+                  <strong>+{POTION_BOOST}</strong> de <strong>{attrLabel(kind)}</strong> para 1
+                  titular, valendo só na <strong>próxima partida</strong> — pode passar de 100
+                  (teto {POTION_ATTR_CAP}).
+                </p>
+              </div>
+            </header>
+
+            <div className="rq-potion-players" aria-label="Escolha quem toma a poção">
+              {[...startingXI(state)]
+                .sort((a, b) => b.overall - a.overall)
+                .map((p) => {
+                  const before = p.attrs[kind]
+                  const after = Math.min(POTION_ATTR_CAP, before + POTION_BOOST)
+                  const maxed = after <= before
+                  const gain = maxed
+                    ? 0
+                    : overallOf(p.role, { ...p.attrs, [kind]: after }) - p.overall
+                  return (
+                    <button
+                      key={p.id}
+                      className="rq-potion-player"
+                      disabled={maxed}
+                      onClick={() => {
+                        potionSfx()
+                        act((s) => usePotion(s, picking, p.id))
+                        setPicking(null)
+                      }}
+                    >
+                      <PlayerAvatar teamId={state.clubId} name={p.name} id={p.id} size={34} />
+                      <span className="rq-potion-p-id">
+                        <strong>{p.name}</strong>
+                        <small>
+                          #{p.number} · <RoleTag role={p.role} /> · OVR {p.overall}
+                        </small>
+                      </span>
+                      {maxed ? (
+                        <span className="rq-chip-max">MAX</span>
+                      ) : (
+                        <span className="rq-potion-delta">
+                          <b style={{ color: deltaColor(before) }}>{before}</b>
+                          <span className="rq-gym-arrow">→</span>
+                          <b
+                            className={after > 100 ? 'rq-potion-super' : ''}
+                            style={{ color: deltaColor(after) }}
+                          >
+                            {after}
+                          </b>
+                          {gain > 0 && <span className="rq-gym-ovr-badge">+{gain} OVR</span>}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+            </div>
+
+            <footer className="rq-potion-foot">
+              <button className="cm-btn cm-btn-ghost cm-btn-block" onClick={() => setPicking(null)}>
+                Guardar para depois
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}

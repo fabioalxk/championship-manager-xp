@@ -30,7 +30,7 @@ export default function SquadView({ state, act }: { state: CareerState; act: Car
                 onClick={() => setSelId(p.id)}
               >
                 <span className="cm-squad-num">{p.number}</span>
-                <PlayerAvatar teamId={club.id} name={p.name} />
+                <PlayerAvatar teamId={club.id} name={p.name} id={p.id} />
                 <span className="cm-squad-name">{p.name}</span>
                 <span className="cm-squad-role">{ROLE_LABEL[p.role]}</span>
                 <span className="cm-squad-age">{p.age}a</span>
@@ -47,7 +47,7 @@ export default function SquadView({ state, act }: { state: CareerState; act: Car
         <div className="cm-squad-detail">
           <div className="cm-squad-detail-head">
             <span className="cm-squad-detail-num">{player.number}</span>
-            <PlayerAvatar teamId={club.id} name={player.name} size={48} />
+            <PlayerAvatar teamId={club.id} name={player.name} id={player.id} size={48} />
             <div className="cm-squad-detail-id">
               <strong>{player.name}</strong>
               <span>

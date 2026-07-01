@@ -1,98 +1,113 @@
 import type { RunState } from '../game/runTypes'
-import { SQUAD_MIN, buyPlayer, coinValueOf, leaveNode, sellPlayer, shopOffers } from '../game/run'
-import { ROLE_LABEL, attrColor } from '../ui/attrDisplay'
-import { PlayerAvatar } from '../ui/PlayerAvatar'
+import {
+  SQUAD_MAX,
+  SQUAD_MIN,
+  buyPlayer,
+  coinValueOf,
+  leaveNode,
+  sellPlayer,
+  shopOffers,
+} from '../game/run'
+import { MarketPlayerCard } from '../ui/MarketPlayerCard'
+import { CoinIcon } from '../ui/icons'
 import { MarketIcon } from './MapIcons'
 import type { RunApi } from './useRun'
 
 const ROLE_ORDER = { GK: 0, DEF: 1, MID: 2, FWD: 3 }
 
+const CoinPrice = ({ value }: { value: number }) => (
+  <>
+    <CoinIcon size={16} /> {value}
+  </>
+)
+
 /** Evento de MERCADO no mapa: só aqui dá pra comprar/vender — nunca fora de um nó. */
 export default function MarketNodeView({ state, act }: { state: RunState; act: RunApi['act'] }) {
-  const offers = shopOffers(state).sort((a, b) => b.player.overall - a.player.overall)
+  const offers = shopOffers(state)
+    .filter((o) => !state.squad.some((p) => p.id === o.player.id))
+    .sort((a, b) => b.player.overall - a.player.overall)
   const squad = [...state.squad].sort(
     (a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || b.overall - a.overall,
   )
+  const full = state.squad.length >= SQUAD_MAX
+  const locked = state.squad.length <= SQUAD_MIN
 
   return (
     <div className="cm-backdrop">
       <div className="cm-modal rq-market">
-        <h2>
-          <MarketIcon size={26} className="rq-h2-ico" /> Mercador de jogadores
-        </h2>
-        <p className="cm-modal-sub">
-          Moedas: <strong>{state.coins}</strong> · Elenco: {state.squad.length} (mínimo {SQUAD_MIN})
-        </p>
+        <header className="rq-market-head">
+          <span className="rq-market-ico">
+            <MarketIcon size={30} />
+          </span>
+          <div>
+            <h2>Mercador de jogadores</h2>
+            <p>Compare os atributos de cada jogador antes de fechar negócio.</p>
+          </div>
+          <div className="rq-market-wallet">
+            <span className="rq-market-coins">
+              <CoinIcon size={17} /> {state.coins}
+            </span>
+            <span className="rq-market-count">
+              Elenco {state.squad.length}/{SQUAD_MAX} · mínimo {SQUAD_MIN}
+            </span>
+          </div>
+        </header>
 
-        <div className="rq-market-cols">
-          <div className="rq-market-col">
+        <div className="rq-market-body">
+          <section>
             <h4>Contratar</h4>
-            <ul className="cm-market-list">
-              {offers.map((o) => {
-                const afford = state.coins >= o.fee
-                return (
-                  <li key={o.player.id} className="cm-market-row">
-                    <span className="cm-squad-ovr" style={{ color: attrColor(o.player.overall) }}>
-                      {o.player.overall}
-                    </span>
-                    <PlayerAvatar teamId={undefined} name={o.player.name} />
-                    <span className="cm-market-name">
-                      <strong>{o.player.name}</strong>
-                      <small>
-                        {ROLE_LABEL[o.player.role]} · {o.player.age} anos
-                      </small>
-                    </span>
-                    <span className="cm-market-fee">{o.fee} moedas</span>
-                    <button
-                      className="cm-btn cm-btn-primary cm-btn-sm"
-                      disabled={!afford}
-                      onClick={() => act((s) => buyPlayer(s, o))}
-                    >
-                      Contratar
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
+            {offers.length === 0 ? (
+              <p className="cm-empty">O mercador não tem mais ninguém pra oferecer.</p>
+            ) : (
+              <ul className="mk-grid">
+                {offers.map((o) => (
+                  <MarketPlayerCard
+                    key={o.player.id}
+                    player={o.player}
+                    price={<CoinPrice value={o.fee} />}
+                    action={{
+                      label: 'Contratar',
+                      disabled: state.coins < o.fee || full,
+                      title: full
+                        ? `Elenco cheio (máximo ${SQUAD_MAX} jogadores)`
+                        : state.coins < o.fee
+                          ? 'Moedas insuficientes'
+                          : undefined,
+                      onClick: () => act((s) => buyPlayer(s, o)),
+                    }}
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
 
-          <div className="rq-market-col">
+          <section>
             <h4>Vender do elenco</h4>
-            <ul className="cm-market-list">
-              {squad.map((p) => {
-                const fee = Math.round(coinValueOf(p.overall, p.age) * 0.85)
-                const locked = state.squad.length <= SQUAD_MIN
-                return (
-                  <li key={p.id} className="cm-market-row">
-                    <span className="cm-squad-ovr" style={{ color: attrColor(p.overall) }}>
-                      {p.overall}
-                    </span>
-                    <PlayerAvatar teamId={state.clubId} name={p.name} />
-                    <span className="cm-market-name">
-                      <strong>{p.name}</strong>
-                      <small>
-                        {ROLE_LABEL[p.role]} · {p.age} anos
-                      </small>
-                    </span>
-                    <span className="cm-market-fee">{fee} moedas</span>
-                    <button
-                      className="cm-btn cm-btn-danger cm-btn-sm"
-                      disabled={locked}
-                      title={locked ? `Não pode ficar com menos de ${SQUAD_MIN} jogadores` : ''}
-                      onClick={() => act((s) => sellPlayer(s, p.id))}
-                    >
-                      Vender
-                    </button>
-                  </li>
-                )
-              })}
+            <ul className="mk-grid">
+              {squad.map((p) => (
+                <MarketPlayerCard
+                  key={p.id}
+                  player={p}
+                  teamId={state.clubId}
+                  price={<CoinPrice value={Math.round(coinValueOf(p.overall, p.age) * 0.85)} />}
+                  action={{
+                    label: 'Vender',
+                    danger: true,
+                    disabled: locked,
+                    title: locked ? `Não pode ficar com menos de ${SQUAD_MIN} jogadores` : undefined,
+                    onClick: () => act((s) => sellPlayer(s, p.id)),
+                  }}
+                />
+              ))}
             </ul>
-          </div>
+          </section>
         </div>
 
-        <button className="cm-btn cm-btn-go cm-btn-lg cm-btn-block" onClick={() => act((s) => leaveNode(s))}>
-          Seguir viagem →
-        </button>
+        <footer className="rq-market-foot">
+          <button className="cm-btn cm-btn-go cm-btn-lg cm-btn-block" onClick={() => act((s) => leaveNode(s))}>
+            Seguir viagem →
+          </button>
+        </footer>
       </div>
     </div>
   )

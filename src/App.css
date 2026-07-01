@@ -1059,6 +1059,21 @@
   color: #38bdf8;
   font-weight: 700;
 }
+/* lista "o que muda em campo" dentro do balão do atributo */
+.ps-tip-list {
+  display: block;
+  margin: 6px 0 0;
+  padding: 6px 0 0 16px;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  list-style: disc;
+}
+.ps-tip-list li {
+  margin: 2px 0;
+  color: #cbd5e1;
+}
+.ps-tip-list li::marker {
+  color: #38bdf8;
+}
 .ps-attr-fill {
   display: block;
   height: 100%;

@@ -17,10 +17,15 @@ import {
   leaveNode,
   continueAfterDefeat,
   finishMatch,
+  usePotion,
+  claimPotion,
   SQUAD_MIN,
   START_LIVES,
+  POTION_BOOST,
+  POTION_ATTR_CAP,
 } from './run'
 import { ALL_CLUBS } from './worldcup'
+import { overallOf } from './overall'
 import { lineupFor } from './lineup'
 import { createMatch, step } from '../sim/engine'
 import { PHYS } from '../sim/constants'
@@ -97,6 +102,13 @@ while (state.status !== 'reward' && state.status !== 'gameover' && guard++ < 20)
 }
 if (state.status === 'reward') {
   assert((state.pendingReward?.length ?? 0) === 3, 'recompensa deve oferecer 3 cartas')
+  // se a vitória ofereceu uma poção, PEGAR é um clique — vai para o inventário
+  if (state.pendingPotion) {
+    const invBefore = state.potions.length
+    assert(claimPotion(state), 'pegar a poção oferecida deveria suceder')
+    assert(state.potions.length === invBefore + 1, 'a poção deve ir para o inventário')
+    assert(state.pendingPotion === null, 'a oferta deve ser consumida ao pegar')
+  }
   const beforeLen = state.squad.length
   pickReward(state, 0)
   assert(state.squad.length === beforeLen + 1, 'elenco deveria crescer com a carta escolhida')
@@ -149,4 +161,28 @@ if (firstMatch) {
   }
 }
 
-console.log('OK: fluxo manual completo do modo roguelike (mapa, escalação, mercado, academia, partida, vidas/empate) funciona.')
+// 7) poções: bufam ACIMA de 100 (teto 120) e o efeito acaba junto com a partida
+const s3 = newRun('Poções', clubId, 555)
+const potionMatch = s3.nodes.find((n) => s3.availableNodeIds.includes(n.id) && n.kind === 'match')
+if (potionMatch) {
+  const target = startingXI(s3)[1]
+  target.attrs.pace = 100
+  target.overall = overallOf(target.role, target.attrs) // pace mexido na mão: realinha a nota
+  const ovrNormal = target.overall
+  s3.potions.push('pace', 'pace')
+  assert(usePotion(s3, 0, target.id), 'usar a poção deveria suceder no mapa')
+  assert(
+    target.attrs.pace === Math.min(POTION_ATTR_CAP, 100 + POTION_BOOST),
+    `poção deve levar o atributo acima de 100 (teto ${POTION_ATTR_CAP})`,
+  )
+  assert(!usePotion(s3, 0, target.id), 'no teto, a segunda poção não pode ser usada')
+  assert(s3.potions.length === 1, 'a poção barrada deve continuar no inventário')
+  assert(s3.activePotions.length === 1, 'deve haver exatamente 1 efeito ativo')
+  enterNode(s3, potionMatch.id)
+  finishMatch(s3, 2, 0) // vitória com a poção em vigor
+  assert(target.attrs.pace === 100, 'após a partida o atributo deve voltar ao normal')
+  assert(target.overall === ovrNormal, 'após a partida a nota geral deve voltar ao normal')
+  assert(s3.activePotions.length === 0, 'os efeitos devem expirar no apito final')
+}
+
+console.log('OK: fluxo manual completo do modo roguelike (mapa, escalação, mercado, academia, partida, vidas/empate, poções) funciona.')

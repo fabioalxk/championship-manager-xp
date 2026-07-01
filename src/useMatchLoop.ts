@@ -5,9 +5,11 @@ import type {
   MatchEvent,
   MatchState,
   MatchStatus,
+  TeamId,
   TeamStats,
+  Vec2,
 } from './sim/types'
-import type { Rosters } from './sim/formation'
+import { applyFormation, type Rosters } from './sim/formation'
 import { MATCH, PHYS } from './sim/constants'
 import { createMatch, setMatchTeamNames, step, stepCelebration } from './sim/engine'
 import { drawMatch, setMatchKits } from './render/renderer'
@@ -173,5 +175,9 @@ export const useMatchLoop = (
     setHud(snapshot(matchRef.current))
   }
 
-  return { hud, running, setRunning, speed, setSpeed, reset }
+  /** Troca a tática de um time no meio da partida (mutação controlada do motor). */
+  const setFormation = (team: TeamId, slots: Vec2[]) =>
+    applyFormation(matchRef.current.players, team, slots)
+
+  return { hud, running, setRunning, speed, setSpeed, reset, setFormation }
 }

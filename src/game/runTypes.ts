@@ -1,3 +1,4 @@
+import type { Vec2 } from '../sim/types'
 import type { GenPlayer } from './types'
 
 /** Tipo de nó do mapa (inspirado no Slay the Spire, adaptado ao futebol). */
@@ -26,6 +27,17 @@ export interface RunNode {
   cleared: boolean
 }
 
+/** Tipos de poção — o valor é a PRÓPRIA chave do atributo bufado em `Attrs`. */
+export type PotionKind = 'strength' | 'pace'
+
+/** Poção já usada num jogador: efeito ativo até o fim da próxima partida. */
+export interface ActivePotion {
+  playerId: number
+  attr: PotionKind
+  /** quanto foi somado de fato (para reverter exatamente após a partida). */
+  amount: number
+}
+
 export type RunStatus =
   | 'map' // escolhendo o próximo nó
   | 'match' // partida em andamento
@@ -45,6 +57,8 @@ export interface RunState {
   squad: GenPlayer[]
   /** ids dos 11 titulares — subconjunto de `squad`. */
   startingIds: number[]
+  /** Âncoras da formação tática (11 slots, "atacando para a direita") — editáveis na aba Tática. */
+  formationSlots: Vec2[]
   coins: number
   /** Vidas restantes (começa com 2: pode perder 1 partida; a 2ª derrota elimina). */
   lives: number
@@ -55,6 +69,12 @@ export interface RunState {
   /** nó sendo resolvido (partida em andamento, mercado ou academia abertos). */
   currentNodeId: string | null
   pendingReward: GenPlayer[] | null
+  /** poções guardadas no inventário (máx. 3) — usáveis no mapa, num titular. */
+  potions: PotionKind[]
+  /** efeitos de poção em vigor — revertidos ao fim da próxima partida. */
+  activePotions: ActivePotion[]
+  /** poção ganha na última vitória (exibida no pop-up de recompensa). */
+  pendingPotion: PotionKind | null
   lastMatch: {
     oppName: string
     homeGoals: number

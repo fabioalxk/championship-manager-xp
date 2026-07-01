@@ -208,11 +208,17 @@ export const PEN = {
  * perigosa a defesa arma a BARREIRA a 9,15 m na linha bola→gol (Lei 13).
  */
 export const FREEKICK = {
-  /** congela a jogada enquanto o cobrador se posta (s) — falta longe do gol */
-  deadball: 1.6,
+  /** congela a jogada enquanto o cobrador se posta (s) — falta longe do gol.
+   *  Folgado o bastante para a falta ser SENTIDA (todos se reposicionam), sem
+   *  cobrança instantânea. */
+  deadball: 2.4,
   /** congela MAIS na falta perigosa: dá tempo da BARREIRA se formar e o ataque
    *  CARREGAR a área antes da cobrança (como num jogo de verdade) */
-  deadballDanger: 2.8,
+  deadballDanger: 3.6,
+  /** pausa EXTRA (s) quando a falta rende CARTÃO: o árbitro chama o infrator e
+   *  mostra o amarelo/vermelho antes de autorizar a cobrança — a parada dura
+   *  pelo menos o tempo da faixa do cartão na tela (BANNER.eventMs). */
+  cardPause: 2.2,
   /** distância regulamentar da barreira à bola (m) — Lei 13 */
   wallDist: 9.15,
   /** nº máximo de defensores que formam a barreira numa falta perigosa */

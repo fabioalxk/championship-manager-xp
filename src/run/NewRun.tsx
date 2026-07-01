@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BRAZIL_ID, WC_TEAM_LIST } from '../game/worldcup'
 import { ClubBadge } from '../ui/ClubBadge'
+import { BallIcon, PlayIcon } from '../ui/icons'
 
 /** Tela inicial do modo roguelike: nome do técnico + escolha da seleção da jornada. */
 export default function NewRun({
@@ -25,13 +26,18 @@ export default function NewRun({
       <div className="rq-title-veil" aria-hidden />
       <div className="cm-newgame-card">
         <div className="cm-brand">
-          <span className="cm-brand-ball">⚽</span>
-          <h1 className="cm-title">Slay of the CM</h1>
+          <span className="cm-brand-ball">
+            <BallIcon size={46} />
+          </span>
+          <div className="cm-brand-lockup">
+            <span className="cm-brand-kicker">Futebol Roguelike</span>
+            <h1 className="cm-title">Slay of the CM</h1>
+          </div>
         </div>
         <div className="rq-title-tags">
-          <span className="rq-title-tag">⚔️ Roguelike</span>
-          <span className="rq-title-tag">🌍 Copa do Mundo</span>
-          <span className="rq-title-tag">☠️ Perdeu, acabou</span>
+          <span className="rq-title-tag rq-tag-red">Roguelike</span>
+          <span className="rq-title-tag rq-tag-blue">Copa do Mundo</span>
+          <span className="rq-title-tag rq-tag-gold">Perdeu, acabou</span>
         </div>
         <p className="cm-subtitle">
           Escolha uma seleção da Copa do Mundo e suba o mapa enfrentando um adversário por fase até
@@ -40,7 +46,7 @@ export default function NewRun({
 
         {hasSave && (
           <button className="cm-btn cm-btn-primary cm-btn-block cm-btn-lg" onClick={onContinue}>
-            ▶ Continuar corrida
+            <PlayIcon size={14} className="cm-btn-ico-lead" /> Continuar corrida
           </button>
         )}
 

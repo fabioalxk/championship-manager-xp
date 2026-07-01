@@ -5,6 +5,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import NewRun from './NewRun'
 import RunShell from './RunShell'
+import TacticsView from './TacticsView'
 import { GameOverModal, LifeLostModal, VictoryModal } from './RunModals'
 import { continueAfterDefeat, newRun, enterNode, quickPlayNode, leaveNode } from '../game/run'
 import { ALL_CLUBS } from '../game/worldcup'
@@ -30,9 +31,14 @@ assert(newRunHtml.includes('Slay of the CM'), 'NewRun deve renderizar o título'
 const clubId = Object.keys(ALL_CLUBS)[0]
 const state = newRun('SSR', clubId, 4242)
 const mapHtml = renderToStaticMarkup(<RunShell api={apiFor(state)} />)
-assert(mapHtml.includes('💰'), 'Shell deve mostrar as moedas')
-assert(mapHtml.includes('❤️'), 'Shell deve mostrar as vidas no cabeçalho')
+assert(mapHtml.includes('cm-coin-chip'), 'Shell deve mostrar as moedas')
+assert(mapHtml.includes('cm-lives-chip'), 'Shell deve mostrar as vidas no cabeçalho')
 assert(mapHtml.includes('Slay of the CM'), 'Shell deve identificar o modo')
+
+// 2b) aba Tática: campinho com os 11 titulares nas âncoras da formação
+const tacticsHtml = renderToStaticMarkup(<TacticsView state={state} act={() => {}} />)
+assert(tacticsHtml.includes('4-3-3'), 'Tática deve mostrar o nome do esquema atual')
+assert((tacticsHtml.match(/tv-chip /g)?.length ?? 0) === 11, 'Tática deve desenhar 11 jogadores no campinho')
 
 // 3) entra num nó de partida (o próprio RunShell troca pra RunMatchView em tela cheia)
 const matchNode = state.nodes.find((n) => state.availableNodeIds.includes(n.id) && n.kind === 'match')

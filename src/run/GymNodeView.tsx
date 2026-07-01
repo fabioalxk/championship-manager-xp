@@ -3,7 +3,7 @@ import type { Attrs, Role } from '../sim/types'
 import type { RunState } from '../game/runTypes'
 import { boostAttribute, leaveNode } from '../game/run'
 import { overallOf } from '../game/overall'
-import { ATTR_GROUPS, ROLE_LABEL, attrColor } from '../ui/attrDisplay'
+import { ATTR_GROUPS, RoleTag, attrColor, attrLabel } from '../ui/attrDisplay'
 import { PlayerAvatar } from '../ui/PlayerAvatar'
 import { GymIcon } from './MapIcons'
 import type { RunApi } from './useRun'
@@ -13,14 +13,11 @@ const ROLE_ORDER = { GK: 0, DEF: 1, MID: 2, FWD: 3 }
 /** Quanto o treino adiciona ao atributo escolhido (teto 100). */
 const GAIN = 20
 
-/** Quantos melhoramentos por visita à academia (3 × 20 = 60 pontos no total). */
-const TRAINS = 3
+/** Quantos melhoramentos por visita à academia (5 × 20 = 100 pontos no total). */
+const TRAINS = 5
 
 /** Grupos de atributos visíveis para a posição (o bloco Goleiro só aparece para GK). */
 const groupsFor = (role: Role) => ATTR_GROUPS.filter((g) => g.title !== 'Goleiro' || role === 'GK')
-
-const labelOf = (key: keyof Attrs): string =>
-  ATTR_GROUPS.flatMap((g) => g.keys).find((k) => k.key === key)?.label ?? key
 
 const afterTrain = (v: number): number => Math.min(100, v + GAIN)
 
@@ -45,7 +42,7 @@ interface TrainDelta {
 }
 
 /**
- * Evento de ACADEMIA no mapa: até 3 melhoramentos de +20 (60 pontos no total, teto 100).
+ * Evento de ACADEMIA no mapa: até 5 melhoramentos de +20 (100 pontos no total, teto 100).
  * Cada treino escolhe 1 jogador e 1 atributo — depois é só seguir viagem.
  */
 export default function GymNodeView({ state, act }: { state: RunState; act: RunApi['act'] }) {
@@ -127,11 +124,11 @@ export default function GymNodeView({ state, act }: { state: RunState; act: RunA
                 disabled={done}
                 onClick={() => selectPlayer(p)}
               >
-                <PlayerAvatar teamId={state.clubId} name={p.name} size={34} />
+                <PlayerAvatar teamId={state.clubId} name={p.name} id={p.id} size={34} />
                 <span className="rq-gym-p-id">
                   <strong>{p.name}</strong>
                   <small>
-                    #{p.number} · {ROLE_LABEL[p.role]}
+                    #{p.number} · <RoleTag role={p.role} />
                   </small>
                 </span>
                 <span className="rq-gym-p-ovr" style={{ color: attrColor(p.overall) }}>
@@ -157,7 +154,7 @@ export default function GymNodeView({ state, act }: { state: RunState; act: RunA
                           className={`rq-chip ${attr === k.key ? 'active' : ''}`}
                           disabled={done || maxed}
                           onClick={() => setAttr(k.key)}
-                          title={k.desc}
+                          title={`${k.desc}\n${k.effects.map((e) => `• ${e}`).join('\n')}`}
                         >
                           <span>{k.label}</span>
                           <b style={{ color: attrColor(val) }}>{val}</b>
@@ -181,7 +178,7 @@ export default function GymNodeView({ state, act }: { state: RunState; act: RunA
             <div className="rq-gym-history">
               {results.map((r, i) => (
                 <span key={i} className="rq-gym-history-item">
-                  ✅ {r.playerName}: {labelOf(r.attr)} {r.before}
+                  ✓ {r.playerName}: {attrLabel(r.attr)} {r.before}
                   <span className="rq-gym-arrow">→</span>
                   {r.after}
                 </span>
@@ -193,14 +190,14 @@ export default function GymNodeView({ state, act }: { state: RunState; act: RunA
               <div className={`rq-gym-summary ${done ? 'rq-gym-done' : ''}`}>
                 {done ? (
                   <span className="rq-gym-done-ico" aria-hidden>
-                    ✅
+                    ✓
                   </span>
                 ) : (
-                  <PlayerAvatar teamId={state.clubId} name={player.name} size={28} />
+                  <PlayerAvatar teamId={state.clubId} name={player.name} id={player.id} size={28} />
                 )}
                 <strong className="rq-gym-summary-name">{summary.playerName}</strong>
                 <span className="rq-gym-delta">
-                  {labelOf(summary.attr)}
+                  {attrLabel(summary.attr)}
                   <b style={{ color: attrColor(summary.before) }}>{summary.before}</b>
                   <span className="rq-gym-arrow">→</span>
                   <b style={{ color: attrColor(summary.after) }}>{summary.after}</b>
@@ -224,7 +221,7 @@ export default function GymNodeView({ state, act }: { state: RunState; act: RunA
                   onClick={train}
                   disabled={summary.before >= 100}
                 >
-                  💪 Treinar! ({trainsLeft} restante{trainsLeft > 1 ? 's' : ''})
+                  Treinar ({trainsLeft} restante{trainsLeft > 1 ? 's' : ''})
                 </button>
               )}
             </>

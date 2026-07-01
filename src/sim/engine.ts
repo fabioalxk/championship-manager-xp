@@ -748,10 +748,15 @@ const commitFoul = (s: MatchState, def: Player, carrier: Player) => {
   maybeInjure(s, carrier)
 
   // pênalti é sempre a manchete; senão, o cartão (se houve) prevalece sobre "FALTA"
-  if (penalty) return penaltyKick(s, carrier.team, ownGoalX)
-
-  announce(s, 'foul', def.team, card ?? 'FALTA', `Falta de ${def.name} sobre ${carrier.name}`)
-  setupFreeKick(s, carrier.team, { ...carrier.pos })
+  if (penalty) {
+    penaltyKick(s, carrier.team, ownGoalX)
+  } else {
+    announce(s, 'foul', def.team, card ?? 'FALTA', `Falta de ${def.name} sobre ${carrier.name}`)
+    setupFreeKick(s, carrier.team, { ...carrier.pos })
+  }
+  // CARTÃO prolonga a parada: o árbitro chama o infrator e mostra o cartão antes
+  // de autorizar a cobrança — a punição é vista, ninguém cobra com a faixa na tela.
+  if (card) s.deadball += FREEKICK.cardPause
 }
 
 /** Avaliação do batedor de falta: finaliza (cobre a antiga longShots) e bate firme (passe/técnica). */

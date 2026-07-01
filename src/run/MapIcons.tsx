@@ -88,11 +88,13 @@ export function MarketIcon({ size = 44, className }: MapIconProps) {
         strokeWidth="1.2"
       />
       <rect x="6.5" y="16.5" width="51" height="5" rx="2.5" fill="url(#rqi-coin)" stroke="rgba(2, 8, 23, 0.5)" strokeWidth="1" />
-      {/* moeda pendurada na quina da barraca */}
-      <line x1="53.5" y1="18" x2="53.5" y2="8" stroke="#78350f" strokeWidth="1.4" />
-      <circle cx="53.5" cy="9.5" r="6.2" fill="url(#rqi-coin)" stroke="#78350f" strokeWidth="1.3" />
-      <circle cx="53.5" cy="9.5" r="3.6" fill="none" stroke="#92400e" strokeWidth="1.1" opacity="0.7" />
-      <circle cx="51.4" cy="7.4" r="1.3" fill="rgba(255, 255, 255, 0.75)" />
+      {/* moeda pendurada na quina da barraca (balança com a "brisa" — ver .rqi-swing) */}
+      <g className="rqi-swing">
+        <line x1="53.5" y1="18" x2="53.5" y2="8" stroke="#78350f" strokeWidth="1.4" />
+        <circle cx="53.5" cy="9.5" r="6.2" fill="url(#rqi-coin)" stroke="#78350f" strokeWidth="1.3" />
+        <circle cx="53.5" cy="9.5" r="3.6" fill="none" stroke="#92400e" strokeWidth="1.1" opacity="0.7" />
+        <circle cx="51.4" cy="7.4" r="1.3" fill="rgba(255, 255, 255, 0.75)" />
+      </g>
       {/* piso */}
       <rect x="10" y="53.5" width="44" height="3.4" rx="1.7" fill="#1e293b" stroke="rgba(2, 8, 23, 0.5)" strokeWidth="1" />
     </svg>
@@ -131,9 +133,45 @@ export function TrophyIcon({ size = 44, className }: MapIconProps) {
         <rect x="23" y="48" width="18" height="4.5" rx="2" fill="url(#rqi-gold)" />
         <rect x="19.5" y="52.5" width="25" height="5" rx="2.2" fill="url(#rqi-gold-dark)" />
       </g>
-      {/* reflexo da taça + faísca */}
+      {/* reflexo da taça + faísca piscando (ver .rqi-spark) */}
       <path d="M23 14 c-1 6 0 12 3.5 17" fill="none" stroke="rgba(255, 255, 255, 0.55)" strokeWidth="2.4" strokeLinecap="round" />
-      <path d="M50 1.5 l1.5 3.9 3.9 1.5 -3.9 1.5 -1.5 3.9 -1.5 -3.9 -3.9 -1.5 3.9 -1.5 Z" fill="#fff" opacity="0.9" />
+      <path
+        className="rqi-spark"
+        d="M50 1.5 l1.5 3.9 3.9 1.5 -3.9 1.5 -1.5 3.9 -1.5 -3.9 -3.9 -1.5 3.9 -1.5 Z"
+        fill="#fff"
+        opacity="0.9"
+      />
+    </svg>
+  )
+}
+
+/** Coroa do chefão — flutua sobre o escudo do adversário final. */
+export function CrownIcon({ size = 26, className }: MapIconProps) {
+  return (
+    <svg viewBox="0 0 64 64" width={size} height={size} className={className} aria-hidden>
+      <defs>
+        {/* mesmos ids/cores do ouro dos outros ícones — defs idênticos */}
+        <linearGradient id="rqi-gold" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fef3c7" />
+          <stop offset="0.5" stopColor="#fbbf24" />
+          <stop offset="1" stopColor="#b45309" />
+        </linearGradient>
+        <linearGradient id="rqi-gold-dark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#d97706" />
+          <stop offset="1" stopColor="#78350f" />
+        </linearGradient>
+      </defs>
+      <g stroke="rgba(56, 22, 3, 0.55)" strokeWidth="1.4">
+        <path d="M10 45 L10 22 L22 33 L32 13 L42 33 L54 22 L54 45 Z" fill="url(#rqi-gold)" />
+        <rect x="10" y="45" width="44" height="7" rx="2.5" fill="url(#rqi-gold-dark)" />
+      </g>
+      {/* pontas e joias */}
+      <circle cx="10" cy="21" r="3" fill="#fef3c7" stroke="rgba(56, 22, 3, 0.55)" strokeWidth="1" />
+      <circle cx="32" cy="12" r="3.4" fill="#fef3c7" stroke="rgba(56, 22, 3, 0.55)" strokeWidth="1" />
+      <circle cx="54" cy="21" r="3" fill="#fef3c7" stroke="rgba(56, 22, 3, 0.55)" strokeWidth="1" />
+      <circle cx="32" cy="48.5" r="2.6" fill="#dc2626" stroke="rgba(56, 22, 3, 0.6)" strokeWidth="1" />
+      <circle cx="20" cy="48.5" r="2" fill="#2563eb" stroke="rgba(56, 22, 3, 0.6)" strokeWidth="1" />
+      <circle cx="44" cy="48.5" r="2" fill="#2563eb" stroke="rgba(56, 22, 3, 0.6)" strokeWidth="1" />
     </svg>
   )
 }
@@ -161,20 +199,22 @@ export function FlagIcon({ size = 44, className }: MapIconProps) {
       {/* mastro */}
       <rect x="19" y="7" width="3.6" height="50" rx="1.8" fill="url(#rqi-steel)" stroke="rgba(2, 8, 23, 0.5)" strokeWidth="0.9" />
       <circle cx="20.8" cy="6.5" r="3" fill="url(#rqi-coin)" stroke="rgba(56, 22, 3, 0.55)" strokeWidth="0.9" />
-      {/* bandeira quadriculada */}
-      <path
-        d="M22.6 11 C31 7.5 38 15 48.5 11.2 V28.5 C38 32.3 31 24.8 22.6 28.3 Z"
-        fill="#f8fafc"
-        stroke="rgba(2, 8, 23, 0.5)"
-        strokeWidth="1.1"
-      />
-      <g clipPath="url(#rqi-flag-clip)" fill="#0f172a">
-        <rect x="22.6" y="8" width="6.5" height="6.5" />
-        <rect x="35.6" y="8" width="6.5" height="6.5" />
-        <rect x="29.1" y="14.5" width="6.5" height="6.5" />
-        <rect x="42.1" y="14.5" width="6.5" height="6.5" />
-        <rect x="22.6" y="21" width="6.5" height="6.5" />
-        <rect x="35.6" y="21" width="6.5" height="6.5" />
+      {/* bandeira quadriculada tremulando (ver .rqi-wave) */}
+      <g className="rqi-wave">
+        <path
+          d="M22.6 11 C31 7.5 38 15 48.5 11.2 V28.5 C38 32.3 31 24.8 22.6 28.3 Z"
+          fill="#f8fafc"
+          stroke="rgba(2, 8, 23, 0.5)"
+          strokeWidth="1.1"
+        />
+        <g clipPath="url(#rqi-flag-clip)" fill="#0f172a">
+          <rect x="22.6" y="8" width="6.5" height="6.5" />
+          <rect x="35.6" y="8" width="6.5" height="6.5" />
+          <rect x="29.1" y="14.5" width="6.5" height="6.5" />
+          <rect x="42.1" y="14.5" width="6.5" height="6.5" />
+          <rect x="22.6" y="21" width="6.5" height="6.5" />
+          <rect x="35.6" y="21" width="6.5" height="6.5" />
+        </g>
       </g>
     </svg>
   )

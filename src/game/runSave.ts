@@ -1,4 +1,5 @@
 import type { RunState } from './runTypes'
+import { defaultFormation } from '../sim/formation'
 import { ensureIdAbove } from './generate'
 import { START_LIVES } from './run'
 
@@ -30,6 +31,12 @@ export const loadRun = (): RunState | null => {
     const state = JSON.parse(raw) as RunState
     // migração v1 → v2: saves antigos não tinham o sistema de vidas
     if (typeof state.lives !== 'number') state.lives = START_LIVES
+    // migração: saves antigos não tinham formação editável (era 4-3-3 fixo)
+    if (!state.formationSlots) state.formationSlots = defaultFormation()
+    // migração v2 → v3: saves antigos não tinham o sistema de poções
+    if (!state.potions) state.potions = []
+    if (!state.activePotions) state.activePotions = []
+    if (state.pendingPotion === undefined) state.pendingPotion = null
     let maxId = 0
     for (const p of state.squad) maxId = Math.max(maxId, p.id)
     for (const n of state.nodes) for (const p of n.opponent?.squad ?? []) maxId = Math.max(maxId, p.id)

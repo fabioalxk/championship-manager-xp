@@ -4,7 +4,7 @@ import { enterNode } from '../game/run'
 import { MAP_WIDTH, STAGE_COUNT } from '../game/runGen'
 import { ALL_CLUBS } from '../game/worldcup'
 import { ClubBadge } from '../ui/ClubBadge'
-import { FlagIcon, GymIcon, MarketIcon, ShieldIcon, TrophyIcon } from './MapIcons'
+import { CrownIcon, FlagIcon, GymIcon, MarketIcon, ShieldIcon, TrophyIcon } from './MapIcons'
 import type { MapIconProps } from './MapIcons'
 import type { RunApi } from './useRun'
 
@@ -102,6 +102,11 @@ function NodeButton({
     >
       {club ? (
         <>
+          {isBoss && (
+            <span className="rq-node-crown" aria-hidden>
+              <CrownIcon size={28} />
+            </span>
+          )}
           <span className="rq-node-ring" aria-hidden />
           <span className="rq-node-badge">
             <ClubBadge club={club} size={isBoss ? 42 : 32} />

@@ -66,6 +66,50 @@ export const goalRoar = (): void => {
   noise.stop(now + dur)
 }
 
+/** Um "glug" de garrafa: tom curto que despenca de altura, como uma bolha de líquido. */
+const glug = (c: AudioContext, at: number, pitch: number) => {
+  const osc = c.createOscillator()
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(pitch, at)
+  osc.frequency.exponentialRampToValueAtTime(pitch * 0.45, at + 0.1)
+  const gain = c.createGain()
+  gain.gain.setValueAtTime(0.0001, at)
+  gain.gain.exponentialRampToValueAtTime(0.16, at + 0.015)
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.11)
+  osc.connect(gain)
+  gain.connect(c.destination)
+  osc.start(at)
+  osc.stop(at + 0.12)
+}
+
+/**
+ * Som de POÇÃO (pegar/beber): três "glugs" de garrafa subindo de tom + um
+ * "ping" mágico que sobe no fim, como o efeito fazendo efeito.
+ */
+export const potionSfx = (): void => {
+  const c = getCtx()
+  if (!c) return
+  if (c.state === 'suspended') void c.resume()
+
+  const now = c.currentTime
+  glug(c, now, 320)
+  glug(c, now + 0.13, 380)
+  glug(c, now + 0.26, 460)
+
+  const osc = c.createOscillator()
+  osc.type = 'triangle'
+  osc.frequency.setValueAtTime(880, now + 0.36)
+  osc.frequency.exponentialRampToValueAtTime(1760, now + 0.6)
+  const gain = c.createGain()
+  gain.gain.setValueAtTime(0.0001, now + 0.36)
+  gain.gain.exponentialRampToValueAtTime(0.07, now + 0.4)
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.72)
+  osc.connect(gain)
+  gain.connect(c.destination)
+  osc.start(now + 0.36)
+  osc.stop(now + 0.75)
+}
+
 /**
  * Um SOPRO de apito: tom agudo (~2.1kHz) com o TRINADO da "bolinha" (o volume
  * treme rápido) e um band-pass que arredonda a aspereza da onda quadrada.

@@ -1,7 +1,94 @@
-import type { Dir, FreeKickKind, Player, TeamId, Vec2 } from './types'
+import type { Dir, FreeKickKind, Player, Role, TeamId, Vec2 } from './types'
 import { AREA, FIELD, FREEKICK } from './constants'
-import { rosterFor, type SeedPlayer } from './teams'
+import { FORMATION_433, rosterFor, type SeedPlayer } from './teams'
 import { dist, vec } from './vector'
+
+// ----------------------------------------------------------------------------
+// ESQUEMAS TÁTICOS — a formação é só a lista das 11 âncoras (`formationPos`);
+// a FUNÇÃO de cada slot (DEF/MID/FWD) é derivada da posição da âncora, então
+// arrastar um jogador de linha para outra faixa do campo muda sua função.
+// ----------------------------------------------------------------------------
+
+/** Função tática de um slot, derivada da faixa do campo onde a âncora está. */
+export const roleForSlot = (index: number, slot: Vec2): Role =>
+  index === 0 ? 'GK' : slot.x < 30 ? 'DEF' : slot.x < 58 ? 'MID' : 'FWD'
+
+export const rolesFor = (slots: Vec2[]): Role[] => slots.map((s, i) => roleForSlot(i, s))
+
+/** Nome do esquema ("4-3-3", "3-5-2"…) contado a partir das funções dos slots. */
+export const formationName = (slots: Vec2[]): string => {
+  const roles = rolesFor(slots)
+  const count = (r: Role) => roles.filter((x) => x === r).length
+  return `${count('DEF')}-${count('MID')}-${count('FWD')}`
+}
+
+/** Limites de arrasto de uma âncora: dentro do campo e fora da zona do goleiro. */
+export const clampSlot = (p: Vec2): Vec2 => ({
+  x: Math.max(10, Math.min(95, p.x)),
+  y: Math.max(4, Math.min(64, p.y)),
+})
+
+/** Presets de formação (coordenadas "atacando para a DIREITA", em metros). */
+export const FORMATION_PRESETS: Record<string, Vec2[]> = {
+  '4-3-3': FORMATION_433,
+  '4-4-2': [
+    { x: 5, y: 34 }, // GK
+    { x: 20, y: 12 }, // LD
+    { x: 17, y: 27 }, // ZAG
+    { x: 17, y: 41 }, // ZAG
+    { x: 20, y: 56 }, // LE
+    { x: 44, y: 13 }, // MD
+    { x: 40, y: 27 }, // MC
+    { x: 40, y: 41 }, // MC
+    { x: 44, y: 55 }, // ME
+    { x: 71, y: 27 }, // ATA
+    { x: 71, y: 41 }, // ATA
+  ],
+  '3-5-2': [
+    { x: 5, y: 34 }, // GK
+    { x: 17, y: 19 }, // ZAG
+    { x: 15, y: 34 }, // ZAG
+    { x: 17, y: 49 }, // ZAG
+    { x: 40, y: 9 }, // ALA D
+    { x: 42, y: 25 }, // MC
+    { x: 37, y: 34 }, // MC
+    { x: 42, y: 43 }, // MC
+    { x: 40, y: 59 }, // ALA E
+    { x: 71, y: 27 }, // ATA
+    { x: 71, y: 41 }, // ATA
+  ],
+  '3-4-3': [
+    { x: 5, y: 34 }, // GK
+    { x: 17, y: 19 }, // ZAG
+    { x: 15, y: 34 }, // ZAG
+    { x: 17, y: 49 }, // ZAG
+    { x: 42, y: 13 }, // MD
+    { x: 38, y: 26 }, // MC
+    { x: 38, y: 42 }, // MC
+    { x: 42, y: 55 }, // ME
+    { x: 71, y: 15 }, // PD
+    { x: 73, y: 34 }, // CA
+    { x: 71, y: 53 }, // PE
+  ],
+}
+
+/** Cópia mutável do esquema padrão (4-3-3) — âncoras iniciais de uma run. */
+export const defaultFormation = (): Vec2[] => FORMATION_433.map((s) => ({ ...s }))
+
+/**
+ * Troca a tática DURANTE a partida: reaponta a âncora (e a função derivada) de
+ * cada jogador em campo do time. O id do jogador codifica seu slot (offset do
+ * time + índice, ver `buildTeam`), então o mapeamento sobrevive a expulsões.
+ */
+export const applyFormation = (players: Player[], team: TeamId, slots: Vec2[]): void => {
+  if (slots.length !== 11) return
+  for (const p of players) {
+    if (p.team !== team) continue
+    const i = p.id % 100
+    p.formationPos = { ...slots[i] }
+    p.role = roleForSlot(i, slots[i])
+  }
+}
 
 /** Elencos customizados (modo carreira). Ausente → usa Brasil×Argentina da demo. */
 export interface Rosters {

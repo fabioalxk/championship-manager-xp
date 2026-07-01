@@ -1,6 +1,7 @@
-import type { Attrs } from '../sim/types'
+import type { Attrs, Vec2 } from '../sim/types'
+import { clampSlot, defaultFormation } from '../sim/formation'
 import type { GenPlayer } from './types'
-import type { RunNode, RunState } from './runTypes'
+import type { PotionKind, RunNode, RunState } from './runTypes'
 import { ALL_CLUBS } from './worldcup'
 import { generateMap, generateRewardCards, generateStartSquad } from './runGen'
 import { generatePlayer, valueOf } from './generate'
@@ -9,12 +10,25 @@ import { bestEleven, squadStrength } from './strength'
 import { quickResult } from './quicksim'
 import { makeRng, mixSeed, type Rng } from './random'
 
-const RUN_VERSION = 2
+const RUN_VERSION = 3
 export const START_COINS = 100
 /** Vidas da run: pode perder 1 partida e continuar; a 2ª derrota elimina. */
 export const START_LIVES = 2
 export const SQUAD_MIN = 11
 export const SQUAD_MAX = 23
+
+// ---- Poções: ganhas ao vencer, usadas num jogador, valem por UMA partida ----
+/** Quanto a poção soma ao atributo — pode PASSAR de 100 (teto 120). */
+export const POTION_BOOST = 20
+export const POTION_ATTR_CAP = 120
+export const POTIONS_MAX = 3
+/** Chance de uma vitória (fora o chefão) render uma poção. */
+const POTION_DROP_CHANCE = 0.5
+export const POTION_KINDS: PotionKind[] = ['strength', 'pace']
+export const POTION_INFO: Record<PotionKind, { label: string; emoji: string }> = {
+  strength: { label: 'Poção de Força', emoji: '💪' },
+  pace: { label: 'Poção de Velocidade', emoji: '⚡' },
+}
 
 const clamp = (v: number, a: number, b: number): number => Math.max(a, Math.min(b, v))
 
@@ -61,6 +75,7 @@ export const newRun = (managerName: string, clubId: string, seed: number): RunSt
     clubId,
     squad,
     startingIds: bestEleven(squad).map((p) => p.id),
+    formationSlots: defaultFormation(),
     coins: START_COINS,
     lives: START_LIVES,
     stage: 0,
@@ -68,6 +83,9 @@ export const newRun = (managerName: string, clubId: string, seed: number): RunSt
     availableNodeIds: nodes.filter((n) => n.stage === 1).map((n) => n.id),
     currentNodeId: null,
     pendingReward: null,
+    potions: [],
+    activePotions: [],
+    pendingPotion: null,
     lastMatch: null,
     status: 'map',
     log: [`${managerName} assume o ${ALL_CLUBS[clubId]?.name ?? clubId} para a jornada.`],
@@ -111,6 +129,71 @@ const clearNode = (state: RunState, node: RunNode): void => {
   state.availableNodeIds = node.next
   state.currentNodeId = null
   state.status = 'map'
+}
+
+// =====================================================================
+// POÇÕES (ganhas ao vencer; efeito de UMA partida, revertido no apito final)
+// =====================================================================
+
+/** Recalcula nota geral e valor após mudar atributos (fonte única do recálculo). */
+const refreshRating = (p: GenPlayer): void => {
+  p.overall = overallOf(p.role, p.attrs)
+  p.value = valueOf(p.overall, p.age)
+}
+
+/**
+ * Usa uma poção do inventário num jogador: +20 no atributo correspondente,
+ * podendo PASSAR de 100 (teto 120). Pode ser tomada no mapa ou NO MEIO da
+ * partida (o motor lê os atributos ao vivo) — o efeito acaba no apito final.
+ */
+export const usePotion = (state: RunState, index: number, playerId: number): boolean => {
+  if (state.status !== 'map' && state.status !== 'match') return false
+  const kind = state.potions[index]
+  const p = state.squad.find((pl) => pl.id === playerId)
+  if (!kind || !p) return false
+  const before = p.attrs[kind]
+  const amount = Math.min(POTION_ATTR_CAP, before + POTION_BOOST) - before
+  if (amount <= 0) return false
+  state.potions.splice(index, 1)
+  p.attrs[kind] += amount
+  refreshRating(p)
+  state.activePotions.push({ playerId, attr: kind, amount })
+  const info = POTION_INFO[kind]
+  log(state, `${info.emoji} ${p.name} tomou a ${info.label}: ${before} → ${p.attrs[kind]} até o fim da partida.`)
+  return true
+}
+
+/** Apito final: reverte todos os efeitos de poção (o boost vale por UMA partida). */
+const expirePotions = (state: RunState): void => {
+  if (state.activePotions.length === 0) return
+  for (const a of state.activePotions) {
+    const p = state.squad.find((pl) => pl.id === a.playerId)
+    if (!p) continue
+    p.attrs[a.attr] -= a.amount
+    refreshRating(p)
+  }
+  state.activePotions = []
+  log(state, '🧪 O efeito das poções acabou — atributos de volta ao normal.')
+}
+
+/** Vitória pode OFERECER uma poção (se houver espaço) — pegar é um clique na recompensa. */
+const maybeDropPotion = (state: RunState, rng: Rng): void => {
+  state.pendingPotion = null
+  if (state.potions.length >= POTIONS_MAX || rng.next() >= POTION_DROP_CHANCE) return
+  const kind = rng.pick(POTION_KINDS)
+  state.pendingPotion = kind
+  log(state, `${POTION_INFO[kind].emoji} A vitória rendeu uma ${POTION_INFO[kind].label} — pegue-a na recompensa!`)
+}
+
+/** Pega a poção oferecida na tela de recompensa: vai para o inventário do cabeçalho. */
+export const claimPotion = (state: RunState): boolean => {
+  if (state.status !== 'reward' || !state.pendingPotion) return false
+  if (state.potions.length >= POTIONS_MAX) return false
+  const kind = state.pendingPotion
+  state.potions.push(kind)
+  state.pendingPotion = null
+  log(state, `${POTION_INFO[kind].emoji} ${POTION_INFO[kind].label} guardada — use-a num jogador antes de uma partida.`)
+  return true
 }
 
 // =====================================================================
@@ -177,6 +260,7 @@ export const finishMatch = (state: RunState, homeGoals: number, awayGoals: numbe
     state.coins += reward
     state.lastMatch = { oppName, homeGoals, awayGoals, won: false, drawn: true, stage: node.stage }
     log(state, `Empate com o ${oppName} (${homeGoals}×${awayGoals}). Classificado: +${reward} moedas, sem reforço.`)
+    expirePotions(state)
     clearNode(state, node)
     return
   }
@@ -186,6 +270,8 @@ export const finishMatch = (state: RunState, homeGoals: number, awayGoals: numbe
     // chefão precisa de um campeão: empate decide nos pênaltis
     won = penaltyShootout(startingXI(state), bestEleven(node.opponent.squad), rng) === 'home'
   }
+  // pênaltis inclusos, a partida acabou: o efeito das poções termina aqui
+  expirePotions(state)
   state.lastMatch = { oppName, homeGoals, awayGoals, won, drawn: false, stage: node.stage }
 
   if (!won) {
@@ -213,6 +299,7 @@ export const finishMatch = (state: RunState, homeGoals: number, awayGoals: numbe
   }
 
   state.pendingReward = generateRewardCards(node.stage, rng)
+  maybeDropPotion(state, rng)
   clearNode(state, node)
   state.status = 'reward'
 }
@@ -249,7 +336,11 @@ export const pickReward = (state: RunState, index: number): void => {
     if (worst.id !== chosen.id) state.squad = state.squad.filter((p) => p.id !== worst.id)
   }
   log(state, `Reforço: ${chosen.name} (${chosen.overall} OVR) entra no banco.`)
+  if (state.pendingPotion) {
+    log(state, `${POTION_INFO[state.pendingPotion].emoji} A ${POTION_INFO[state.pendingPotion].label} ficou para trás…`)
+  }
   state.pendingReward = null
+  state.pendingPotion = null
   ensureStartingXI(state)
   state.status = 'map'
 }
@@ -284,6 +375,22 @@ export const benchHasUpgrade = (state: RunState): boolean => {
 /** Escala automaticamente os 11 melhores do elenco (botão "melhor time" na UI). */
 export const optimizeStartingXI = (state: RunState): void => {
   state.startingIds = bestEleven(state.squad).map((p) => p.id)
+}
+
+// =====================================================================
+// TÁTICA (formação — presets e arrasto das âncoras na aba Tática)
+// =====================================================================
+
+/** Aplica um preset de formação (4-4-2, 3-5-2…) — sempre uma CÓPIA das âncoras. */
+export const setFormation = (state: RunState, slots: Vec2[]): void => {
+  if (slots.length !== 11) return
+  state.formationSlots = slots.map((s) => ({ ...s }))
+}
+
+/** Move uma âncora da formação (arrasto no campinho). O goleiro (slot 0) é fixo. */
+export const moveFormationSlot = (state: RunState, index: number, pos: Vec2): void => {
+  if (index <= 0 || index >= state.formationSlots.length) return
+  state.formationSlots[index] = clampSlot(pos)
 }
 
 // =====================================================================
@@ -338,14 +445,14 @@ export const sellPlayer = (state: RunState, playerId: number): boolean => {
 // ACADEMIA (só dentro de um nó de academia)
 // =====================================================================
 
-/** Bufa MUITO um atributo de um jogador (+20, teto 100) — até 3 usos por nó de academia (60 pontos no total). */
+/** Bufa MUITO um atributo de um jogador (+20, teto 100) — até 5 usos por nó de academia (100 pontos no total). */
 export const boostAttribute = (state: RunState, playerId: number, attr: keyof Attrs): boolean => {
   if (state.status !== 'gym') return false
   const p = state.squad.find((pl) => pl.id === playerId)
-  if (!p) return false
+  // já no teto do treino (ou acima dele, por poção) — não pode reduzir o atributo
+  if (!p || p.attrs[attr] >= 100) return false
   p.attrs[attr] = clamp(p.attrs[attr] + 20, 1, 100)
-  p.overall = overallOf(p.role, p.attrs)
-  p.value = valueOf(p.overall, p.age)
+  refreshRating(p)
   log(state, `${p.name} treinou forte: +20 em atributo, agora ${p.overall} OVR.`)
   return true
 }
@@ -383,13 +490,13 @@ const autoShop = (state: RunState): void => {
   }
 }
 
-/** Usa os 3 melhoramentos da academia no melhor titular, sempre no atributo mais fraco atual. */
+/** Usa os 5 melhoramentos da academia no melhor titular, sempre no atributo mais fraco atual. */
 const autoGym = (state: RunState): void => {
   const xi = startingXI(state)
   if (xi.length === 0) return
   const target = [...xi].sort((a, b) => b.overall - a.overall)[0]
   const keys = Object.keys(target.attrs) as (keyof Attrs)[]
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     const weakest = keys.reduce((a, b) => (target.attrs[a] < target.attrs[b] ? a : b))
     boostAttribute(state, target.id, weakest)
   }
@@ -435,11 +542,17 @@ export const autoPlayRun = (state: RunState, maxNodes = 60): RunAutoPlayResult =
         candidates.find((n) => n.kind === 'match' || n.kind === 'boss') ??
         candidates.find((n) => n.kind === 'gym') ??
         candidates[0]
+      // antes de uma partida, esvazia o inventário de poções no melhor titular
+      if (pick.kind === 'match' || pick.kind === 'boss') {
+        const target = [...startingXI(state)].sort((a, b) => b.overall - a.overall)[0]
+        if (target) for (let i = state.potions.length - 1; i >= 0; i--) usePotion(state, i, target.id)
+      }
       enterNode(state, pick.id)
       nodesVisited++
     } else if (state.status === 'match') {
       quickPlayNode(state)
     } else if (state.status === 'reward') {
+      claimPotion(state)
       autoPickReward(state)
       optimizeStartingXI(state)
     } else if (state.status === 'lifelost') {

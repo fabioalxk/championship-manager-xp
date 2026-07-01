@@ -1,21 +1,25 @@
 import { useState } from 'react'
 import { getPlayerPhotoUrl } from '../game/playerPhotos'
+import { GeneratedFace } from './generatedFace'
 
 /**
  * Foto do jogador (`/players/<teamId>/<slug>.png`, baixada por
  * tools/download-player-photos.mjs) quando ele faz parte de um elenco real
  * com fotos baixadas (hoje só a seleção brasileira). Sem foto ou em caso de
- * erro de carregamento, cai para as iniciais do nome sobre um fundo neutro —
- * nenhuma tela quebra por falta de arquivo.
+ * erro de carregamento, cai para um rosto cartoon gerado a partir do `id` do
+ * jogador — assim todo jogador tem uma cara, real ou não, e nenhuma tela
+ * quebra por falta de arquivo.
  */
 export function PlayerAvatar({
   teamId,
   name,
+  id,
   size = 28,
   className = '',
 }: {
   teamId: string | undefined
   name: string
+  id: number
   size?: number
   className?: string
 }) {
@@ -25,11 +29,8 @@ export function PlayerAvatar({
 
   if (!src || failed)
     return (
-      <span
-        className={`cm-player-avatar cm-player-avatar-fallback ${className}`}
-        style={{ ...box, fontSize: Math.round(size * 0.4) }}
-      >
-        {initials(name)}
+      <span className={`cm-player-avatar cm-player-avatar-fallback ${className}`} style={box}>
+        <GeneratedFace seed={id} size={size} />
       </span>
     )
 
@@ -44,12 +45,3 @@ export function PlayerAvatar({
     />
   )
 }
-
-const initials = (name: string): string =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase()

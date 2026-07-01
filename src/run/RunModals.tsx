@@ -1,5 +1,7 @@
 import type { RunState } from '../game/runTypes'
 import { ALL_CLUBS } from '../game/worldcup'
+import { HeartbreakIcon, RestartIcon, SkullIcon } from '../ui/icons'
+import { TrophyIcon } from './MapIcons'
 
 function Backdrop({ children }: { children: React.ReactNode }) {
   return <div className="cm-backdrop">{children}</div>
@@ -18,7 +20,9 @@ export function LifeLostModal({ state, onContinue }: { state: RunState; onContin
   return (
     <Backdrop>
       <div className="cm-modal cm-modal-over">
-        <div className="rq-over-emoji">💔</div>
+        <div className="rq-over-emoji rq-over-red">
+          <HeartbreakIcon size={56} />
+        </div>
         <h2>VOCÊ PERDEU 1 VIDA</h2>
         <p className="cm-modal-sub">{lastMatchLine(state)}</p>
         <p className="cm-modal-sub">
@@ -38,12 +42,14 @@ export function GameOverModal({ state, onNewRun }: { state: RunState; onNewRun: 
   return (
     <Backdrop>
       <div className="cm-modal cm-modal-over">
-        <div className="rq-over-emoji">☠️</div>
+        <div className="rq-over-emoji rq-over-bone">
+          <SkullIcon size={56} />
+        </div>
         <h2>ELIMINADO</h2>
         <p className="cm-modal-sub">{lastMatchLine(state)}</p>
         <p className="cm-modal-sub">Suas vidas acabaram. Fim de jornada — comece uma corrida nova do zero.</p>
         <button className="cm-btn cm-btn-primary cm-btn-lg cm-btn-block" onClick={onNewRun}>
-          ↺ Nova corrida
+          <RestartIcon size={15} className="cm-btn-ico-lead" /> Nova corrida
         </button>
       </div>
     </Backdrop>
@@ -56,7 +62,9 @@ export function VictoryModal({ state, onNewRun }: { state: RunState; onNewRun: (
   return (
     <Backdrop>
       <div className="cm-modal cm-modal-won">
-        <div className="cm-won-trophy">🏆</div>
+        <div className="cm-won-trophy">
+          <TrophyIcon size={78} />
+        </div>
         <h2>VOCÊ VENCEU O CHEFÃO!</h2>
         <p className="cm-modal-sub">
           {state.managerName} levou o {club?.name ?? state.clubId} do primeiro quadradinho até o topo do

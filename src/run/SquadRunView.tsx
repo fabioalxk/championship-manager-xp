@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RunState } from '../game/runTypes'
 import { optimizeStartingXI, swapStarter } from '../game/run'
-import { ROLE_LABEL, attrColor, AttrGroups } from '../ui/attrDisplay'
+import { RoleTag, attrColor, AttrGroups } from '../ui/attrDisplay'
 import { PlayerAvatar } from '../ui/PlayerAvatar'
+import { SwapIcon } from '../ui/icons'
 import type { GenPlayer } from '../game/types'
 import type { RunApi } from './useRun'
 
@@ -58,7 +59,7 @@ export default function SquadRunView({ state, act }: { state: RunState; act: Run
     fireToast(
       losesOnlyGk
         ? `⚠ ${benchP.name} entra, mas o time fica sem um goleiro de verdade`
-        : `✅ ${benchP.name} entra no lugar de ${starterP.name}`,
+        : `✓ ${benchP.name} entra no lugar de ${starterP.name}`,
       losesOnlyGk,
     )
     setSelId(benchP.id)
@@ -73,10 +74,12 @@ export default function SquadRunView({ state, act }: { state: RunState; act: Run
           className={`rq-card ${isSel ? 'is-sel' : ''} ${isSwapTarget ? 'is-swap-target' : ''}`}
           onClick={() => pick(p, side)}
         >
-          <PlayerAvatar teamId={state.clubId} name={p.name} size={34} />
+          <PlayerAvatar teamId={state.clubId} name={p.name} id={p.id} size={34} />
           <span className="rq-card-info">
             <strong>{p.name}</strong>
-            <span className="rq-card-sub">{ROLE_LABEL[p.role]}</span>
+            <span className="rq-card-sub">
+              <RoleTag role={p.role} />
+            </span>
           </span>
           <span className="rq-card-ovr" style={{ color: attrColor(p.overall) }}>
             {p.overall}
@@ -104,7 +107,7 @@ export default function SquadRunView({ state, act }: { state: RunState; act: Run
         </div>
 
         <span className="rq-simple-swap-ico" aria-hidden>
-          ⇄
+          <SwapIcon size={16} />
         </span>
 
         <div className="rq-simple-col">
@@ -123,11 +126,11 @@ export default function SquadRunView({ state, act }: { state: RunState; act: Run
         <div className="rq-simple-detail">
           <div className="cm-squad-detail-head">
             <span className="cm-squad-detail-num">{sel.number}</span>
-            <PlayerAvatar teamId={state.clubId} name={sel.name} size={48} />
+            <PlayerAvatar teamId={state.clubId} name={sel.name} id={sel.id} size={48} />
             <div className="cm-squad-detail-id">
               <strong>{sel.name}</strong>
               <span>
-                {ROLE_LABEL[sel.role]} · {sel.age} anos · {selSide === 'starter' ? 'Titular' : 'Reserva'}
+                <RoleTag role={sel.role} /> · {sel.age} anos · {selSide === 'starter' ? 'Titular' : 'Reserva'}
               </span>
             </div>
             <span className="cm-squad-detail-ovr" style={{ color: attrColor(sel.overall) }}>
