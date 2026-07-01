@@ -14,19 +14,20 @@ let corners = 0, cornerGoals = 0
 for (let i = 0; i < N; i++) {
   const s = createMatch()
   let ch = 0, ca = 0, prevH = 0, prevA = 0, guard = 0
-  let watch: { team: TeamId; steps: number } | null = null
+  let watch: { team: TeamId; steps: number; live: boolean } | null = null
   while (s.status !== 'over' && guard++ < 600_000) {
     if (s.celebration) stepCelebration(s, 1 / 30)
     else step(s, 1 / 30)
     // escanteio novo?
-    if (s.stats.home.corners > ch) { corners += s.stats.home.corners - ch; ch = s.stats.home.corners; watch = { team: 'home', steps: 0 } }
-    if (s.stats.away.corners > ca) { corners += s.stats.away.corners - ca; ca = s.stats.away.corners; watch = { team: 'away', steps: 0 } }
-    // gol do time que cobrou dentro da janela?
+    if (s.stats.home.corners > ch) { corners += s.stats.home.corners - ch; ch = s.stats.home.corners; watch = { team: 'home', steps: 0, live: false } }
+    if (s.stats.away.corners > ca) { corners += s.stats.away.corners - ca; ca = s.stats.away.corners; watch = { team: 'away', steps: 0, live: false } }
+    // gol do time que cobrou dentro da janela? A janela só corre DEPOIS da cobrança
+    // (a bola parada/congelamento não conta — senão o deadball longo comeria a janela).
     if (watch) {
-      watch.steps++
+      if (!watch.live && s.deadball <= 0 && s.controllerId === null) watch.live = true
       const gained = watch.team === 'home' ? s.score.home - prevH : s.score.away - prevA
       if (gained > 0) { cornerGoals++; watch = null }
-      else if (watch.steps > 120) watch = null // ~4s de janela expirou
+      else if (watch.live && ++watch.steps > 120) watch = null // ~4s de JOGO expirou
     }
     prevH = s.score.home; prevA = s.score.away
   }

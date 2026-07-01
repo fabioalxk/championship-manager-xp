@@ -1,6 +1,7 @@
-import type { Dir, Player, TeamId, Vec2 } from './types'
-import { AREA, FIELD } from './constants'
+import type { Dir, FreeKickKind, Player, TeamId, Vec2 } from './types'
+import { AREA, FIELD, FREEKICK } from './constants'
 import { rosterFor, type SeedPlayer } from './teams'
+import { dist, vec } from './vector'
 
 /** Elencos customizados (modo carreira). Ausente → usa Brasil×Argentina da demo. */
 export interface Rosters {
@@ -22,6 +23,24 @@ export const attackingGoalX = (dir: Dir): number => (dir === 1 ? FIELD.w : 0)
 
 /** Gol que o time DEFENDE, conforme sua direção. */
 export const defendingGoalX = (dir: Dir): number => (dir === 1 ? 0 : FIELD.w)
+
+/**
+ * Classifica um TIRO LIVRE pelo LOCAL da falta (Lei 13) — a REGRA única que decide
+ * o que se faz com a bola parada, para o motor e a IA nunca divergirem:
+ *  • `direct` — perto e DENTRO do cone central (a zona clássica do "D"): bate-se
+ *    DIRETO ao gol, por cima da barreira;
+ *  • `cross`  — avançado o bastante para ameaçar, mas FORA do cone (de lado) ou um
+ *    pouco além do alcance do chute: ALÇA-SE na área para o cabeceio (cruzamento);
+ *  • `far`    — longe do gol: RECOMPÕE-SE a jogada com um passe (cobrança rápida).
+ * `atkGx` é o gol atacado pelo time que cobra (`attackingGoalX`).
+ */
+export const freeKickKind = (spot: Vec2, atkGx: number): FreeKickKind => {
+  const dGoal = dist(spot, vec(atkGx, FIELD.cy))
+  const lateral = Math.abs(spot.y - FIELD.cy)
+  if (lateral < FREEKICK.directCone && dGoal < FREEKICK.directMaxDist) return 'direct'
+  if (dGoal < FREEKICK.launchDist) return 'cross'
+  return 'far'
+}
 
 /** O ponto está dentro da grande área cujo gol fica em `goalX` (0 ou FIELD.w)? */
 export const inPenaltyArea = (pos: Vec2, goalX: number): boolean => {

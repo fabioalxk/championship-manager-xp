@@ -38,12 +38,14 @@ import {
   SHOT,
   STAMINA,
   STOPPAGE,
+  WHISTLE,
 } from './constants'
 import { TEAMS } from './teams'
 import {
   buildPlayers,
   attackingGoalX,
   defendingGoalX,
+  freeKickKind,
   homePos,
   inPenaltyArea,
   type Rosters,
@@ -98,6 +100,7 @@ const other = (t: TeamId): TeamId => (t === 'home' ? 'away' : 'home')
  *  ar (a bola voltou a ser disputável normalmente — defendida, rebatida ou parada). */
 const endFreeKickPhase = (s: MatchState) => {
   s.wallIds = []
+  s.fkKind = null
   s.fkShotTimer = 0
 }
 
@@ -193,6 +196,7 @@ export const createMatch = (rosters?: Rosters): MatchState => {
     throwIn: false,
     freeKick: false,
     wallIds: [],
+    fkKind: null,
     fkShotTimer: 0,
     penalty: false,
     corner: false,
@@ -356,9 +360,11 @@ const advancePlayer = (s: MatchState, p: Player, dt: number) => {
     return
   }
   const eng = engagement(s, p)
-  // ESCANTEIO: durante o congelamento os jogadores CORREM para carregar/marcar a
-  // área (sem o freio de engajamento, que os deixaria a passo longe da bola).
-  const hustle = s.corner && s.deadball > 0
+  // BOLA PARADA PERIGOSA (escanteio ou falta de chute direto/cruzamento): durante o
+  // congelamento os jogadores CORREM para carregar/marcar a área e formar a barreira
+  // (sem o freio de engajamento, que os deixaria a passo longe da bola). É a
+  // "enrolada" realista em que todos se posicionam antes da cobrança.
+  const hustle = (s.corner || (s.fkKind !== null && s.fkKind !== 'far')) && s.deadball > 0
   const effMax = hustle
     ? maxSpeed(p) * MOVE.setPieceHustle
     : maxSpeed(p) * (MOVE.jogFloor + (1 - MOVE.jogFloor) * eng)
@@ -739,26 +745,27 @@ const placedKickRating = (p: Player): number =>
   nrm(p.attrs.longShots) * 0.5 + nrm(p.attrs.finishing) * 0.3 + nrm(p.attrs.technique) * 0.2
 
 /**
- * Arma um TIRO LIVRE (Lei 13) no `spot` para `team`. Diferente de um deadball
- * qualquer: numa falta perigosa e central o batedor é o MELHOR cobrador (bate
- * direto/lança), senão é o companheiro mais próximo; e a barreira da defesa se
- * forma sozinha em `desiredTarget`. O que se FAZ com a bola (chute direto,
- * lançamento na área ou recomposição) é decidido em `decideAction`.
+ * Arma um TIRO LIVRE (Lei 13) no `spot` para `team`. A POSIÇÃO da falta decide o
+ * lance (ver `freeKickKind`): CHUTE DIRETO perto e central (o MELHOR cobrador
+ * assume e a barreira se forma), CRUZAMENTO na área quando avançado mas de lado
+ * (o ataque CARREGA a área, sem barreira) e RECOMPOSIÇÃO longe (cobrança rápida).
+ * O que se FAZ com a bola é decidido em `decideAction`; onde cada um se posta,
+ * em `freeKickStation`. As faltas perigosas congelam mais para todos se posicionarem.
  */
-const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2, indirect = false) => {
+export const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2, indirect = false) => {
   const atkGx = attackingGoalX(s.attackDir[team])
-  const dGoal = dist(spot, vec(atkGx, FIELD.cy))
-  const central = Math.abs(spot.y - FIELD.cy) < FREEKICK.shootCone
-  const dangerous = dGoal < FREEKICK.dangerDist
+  const kind = freeKickKind(spot, atkGx)
+  const dangerous = kind !== 'far' // chute direto ou cruzamento: vale esperar/posicionar
+  s.fkKind = kind
 
-  // o cobrador (jamais o jogador caído na falta): em posição de pancada direta,
-  // o melhor batedor assume; senão, o companheiro de linha mais próximo da bola.
+  // o cobrador (jamais o jogador caído na falta): no CHUTE DIRETO o melhor batedor
+  // assume (bate por cima da barreira); senão, o companheiro de linha mais próximo.
   const eligible = s.players.filter((p) => p.team === team && p.role !== 'GK' && p.stun <= 0)
   const pool = eligible.length
     ? eligible
     : s.players.filter((p) => p.team === team && p.role !== 'GK')
   const taker =
-    dangerous && central
+    kind === 'direct'
       ? pool.reduce((b, p) => (placedKickRating(p) > placedKickRating(b) ? p : b))
       : pool.reduce((b, p) => (dist(p.pos, spot) < dist(b.pos, spot) ? p : b))
 
@@ -773,10 +780,11 @@ const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2, indirect = false
     s.indirectTakerId = taker.id
   }
 
-  // BARREIRA (fonte única): nas faltas perigosas, fixa quais defensores formam o
-  // paredão — os mais próximos do 1º pau na linha bola→gol. A IA os posta em leque
-  // e o motor os deixa bloquear rasteiro mas não cabecear a bola alçada por cima.
-  if (dangerous) {
+  // BARREIRA (fonte única): só no CHUTE DIRETO se arma o paredão — os defensores
+  // mais próximos do 1º pau na linha bola→gol. A IA os posta em leque e o motor os
+  // deixa bloquear rasteiro mas não cabecear a bola alçada por cima. No CRUZAMENTO
+  // não há barreira: a defesa MARCA a área (ver `freeKickStation` → `cornerStation`).
+  if (kind === 'direct') {
     const defTeam = other(team)
     const ns = Math.sign(spot.y - FIELD.cy) || 1
     const nearPost = vec(atkGx, FIELD.cy + ns * (GOAL.width / 2))
@@ -1774,6 +1782,28 @@ export const stepCelebration = (s: MatchState, dtReal: number): void => {
   }
 }
 
+/**
+ * O tempo (45'/90' + acréscimos) ESGOTOU — é hora de o árbitro apitar? Não no meio
+ * de um ataque: ele espera uma PAUSA NATURAL. É pausa natural quando a bola está
+ *  • VIVA (não numa cobrança/saindo pela linha — bola parada é lance a resolver, e a
+ *    saída pela linha ainda pode ser um escanteio/lateral perigoso; espera-se o reinício),
+ *  • ROLANDO NO CHÃO (não uma bola alta em pleno cruzamento/lançamento),
+ *  • na FAIXA NEUTRA do meio-campo (longe das duas áreas — nenhum ataque em curso), e
+ *  • SEM um chute direto de falta ainda voando ao gol.
+ * Ou seja: o clássico "a bola foi tocada para o meio-campo" — aí sim soa o apito.
+ */
+const atNaturalBreak = (s: MatchState): boolean =>
+  s.deadball <= 0 &&
+  s.outOfPlay <= 0 &&
+  s.fkShotTimer <= 0 &&
+  s.ball.z <= AIR.groundBand &&
+  Math.abs(s.ball.pos.x - FIELD.cx) <= WHISTLE.neutralHalfWidth
+
+/** O tempo `target` (s de jogo) esgotou E já se pode apitar? Espera a pausa natural,
+ *  mas não além do teto `maxExtraWait` — passado ele, apita de qualquer jeito. */
+const timeUp = (s: MatchState, target: number): boolean =>
+  s.time >= target && (atNaturalBreak(s) || s.time >= target + WHISTLE.maxExtraWait)
+
 const switchSides = (s: MatchState) => {
   s.half = 2
   s.attackDir.home = (s.attackDir.home * -1) as Dir
@@ -1800,13 +1830,15 @@ export const step = (s: MatchState, dt: number): void => {
 
   s.time += dt * MATCH.clockRate
 
-  // transições de tempo — cada tempo dura 45min + os ACRÉSCIMOS acumulados (Lei 7)
-  if (s.half === 1 && s.time >= MATCH.halfSeconds + s.stoppage) {
+  // transições de tempo — cada tempo dura 45min + os ACRÉSCIMOS acumulados (Lei 7).
+  // O apito NÃO soa no ato dos 45'/90': espera-se uma PAUSA NATURAL (bola no meio-campo,
+  // no chão, sem ataque em curso) — como um árbitro de verdade (ver `timeUp`). Se o tempo
+  // ainda não esgotou, ou esgotou mas o lance segue quente, o jogo CONTINUA (acréscimos).
+  if (s.half === 1 && timeUp(s, MATCH.halfSeconds + s.stoppage)) {
     switchSides(s)
     return
   }
-  if (s.time >= 2 * MATCH.halfSeconds + s.stoppage) {
-    s.time = 2 * MATCH.halfSeconds + s.stoppage
+  if (s.half === 2 && timeUp(s, 2 * MATCH.halfSeconds + s.stoppage)) {
     s.status = 'over'
     const r = `${s.score.home} x ${s.score.away}`
     addEvent(s, 'fulltime', null, `🏁 Fim de jogo — Brasil ${r} Argentina`)

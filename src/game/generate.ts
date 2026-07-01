@@ -17,7 +17,7 @@ export const DIVISION_LEVEL: Record<Division, number> = {
   A: 76,
   B: 71,
   C: 67,
-  D: 64,
+  D: 41, // baixo de propósito: com o caos da Série D a nota volta a subir p/ ~50
 }
 
 /**
@@ -26,6 +26,32 @@ export const DIVISION_LEVEL: Record<Division, number> = {
  * longe de imbatível.
  */
 export const PLAYER_BOOST = 5
+
+/**
+ * Caos por divisão: quanto MAIS baixa a divisão, MAIOR o contraste ENTRE os
+ * atributos de um mesmo jogador. Na Série D o elenco é cru e irregular — dá pra
+ * ter pace 90 e domínio/força 20 no mesmo cara, com a nota média puxada pra baixo
+ * pelos muitos "buracos". Na Série A os craques são bem mais completos/equilibrados.
+ */
+const DIVISION_CHAOS: Record<Division, ChaosCfg> = {
+  A: { spread: 1.15, jitter: 7, spikes: 1, spikeBoost: 12, tanks: 1, tankDrop: 12, floor: 8, ceil: 99 },
+  B: { spread: 1.35, jitter: 10, spikes: 2, spikeBoost: 16, tanks: 2, tankDrop: 18, floor: 6, ceil: 99 },
+  C: { spread: 1.55, jitter: 14, spikes: 2, spikeBoost: 22, tanks: 3, tankDrop: 28, floor: 4, ceil: 99 },
+  D: { spread: 1.95, jitter: 20, spikes: 3, spikeBoost: 30, tanks: 5, tankDrop: 44, floor: 3, ceil: 99 },
+}
+
+/** Fonte de caos baseada no Rng da carreira (determinística por seed). */
+const rngChaosSource = (rng: Rng): ChaosSource => ({
+  jitter: () => rng.next() * 2 - 1,
+  pickN: (keys, _purpose, n) => {
+    const pool = [...keys]
+    const out = new Set<keyof Attrs>()
+    for (let i = 0; i < n && pool.length > 0; i++) {
+      out.add(pool.splice(rng.int(0, pool.length - 1), 1)[0])
+    }
+    return out
+  },
+})
 
 /** Composição do elenco: 2 goleiros, 6 zagueiros/laterais, 6 meias, 4 atacantes. */
 const SQUAD_SHAPE: Role[] = [
@@ -67,14 +93,16 @@ export const ensureIdAbove = (min: number): void => {
   if (min >= nextId) nextId = min + 1
 }
 
-/** Gera um jogador para uma posição num nível-alvo. */
+/** Gera um jogador para uma posição num nível-alvo, opcionalmente com caos da divisão. */
 export const generatePlayer = (
   role: Role,
   target: number,
   number: number,
   rng: Rng,
+  chaos?: ChaosCfg,
 ): GenPlayer => {
-  const attrs = scaledAttrs(role, target, rng)
+  const scaled = scaledAttrs(role, target, rng)
+  const attrs = chaos ? applyChaos(scaled, role, chaos, rngChaosSource(rng)) : scaled
   const overall = overallOf(role, attrs)
   const age = rng.int(17, 34)
   return {
@@ -92,6 +120,7 @@ export const generatePlayer = (
 /** Gera o elenco completo de um clube no nível da sua divisão (+ boost opcional). */
 export const generateSquad = (division: Division, rng: Rng, boost = 0): GenPlayer[] => {
   const level = DIVISION_LEVEL[division] + boost
+  const chaos = DIVISION_CHAOS[division]
   const used = new Set<number>()
   const pickNumber = (): number => {
     let n = rng.int(1, 39)
@@ -100,7 +129,7 @@ export const generateSquad = (division: Division, rng: Rng, boost = 0): GenPlaye
     return n
   }
   return SQUAD_SHAPE.map((role) =>
-    generatePlayer(role, level + rng.gauss() * 5, pickNumber(), rng),
+    generatePlayer(role, level + rng.gauss() * 5, pickNumber(), rng, chaos),
   )
 }
 
@@ -125,11 +154,12 @@ export const generateClub = (
 /** Gera jogadores disponíveis no mercado (free agents) com taxa de contratação. */
 export const generateMarket = (division: Division, count: number, rng: Rng): MarketPlayer[] => {
   const level = DIVISION_LEVEL[division]
+  const chaos = DIVISION_CHAOS[division]
   const roles: Role[] = ['GK', 'DEF', 'DEF', 'MID', 'MID', 'FWD', 'FWD', 'DEF', 'MID', 'FWD']
   return Array.from({ length: count }, (_, i) => {
     // o mercado oferece de reforços medianos a craques acima da divisão
     const target = level + rng.range(-4, 12)
-    const p = generatePlayer(roles[i % roles.length], target, rng.int(1, 39), rng)
+    const p = generatePlayer(roles[i % roles.length], target, rng.int(1, 39), rng, chaos)
     return { ...p, fee: Math.max(50_000, Math.round(p.value * rng.range(0.9, 1.25))) }
   })
 }

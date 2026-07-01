@@ -37,9 +37,13 @@ export type Action =
  * (t = √(8·peak/g)); a velocidade horizontal é d/t (limitada). É a fonte única do
  * tiro de meta, do chutão longo e do cruzamento flutuado.
  */
-const arc = (d: number, peak: number): { speed: number; loft: number } => {
+const arc = (
+  d: number,
+  peak: number,
+  minSpeed = AIR.arcSpeedMin,
+): { speed: number; loft: number } => {
   const t = Math.sqrt((8 * peak) / AIR.gravity)
-  const speed = clamp(d / t, AIR.arcSpeedMin, AIR.arcSpeedMax)
+  const speed = clamp(d / t, minSpeed, AIR.arcSpeedMax)
   return { speed, loft: clamp((AIR.gravity * t) / 2, 0, AIR.maxVz) }
 }
 
@@ -227,6 +231,13 @@ const crossAction = (
   pressured: boolean,
 ): Action => {
   const aim = withNoise(s, carrier.pos, target, crossSpread(carrier.attrs, pressured))
+  // ESCANTEIO: SEMPRE alçado, com arco mais ALTO e velocidade mais BAIXA (bola
+  // aérea que flutua e cai na área) — não o cruzamento tenso de jogo aberto.
+  if (s.corner) {
+    const peak = AIR.cornerPeakMin + rand(s) * (AIR.cornerPeakMax - AIR.cornerPeakMin)
+    const a = arc(dist(carrier.pos, target), peak, AIR.cornerArcSpeedMin)
+    return { type: 'pass', target: aim, speed: a.speed, to: null, loft: a.loft }
+  }
   if (rand(s) < AIR.crossLoftChance) {
     const peak = AIR.crossPeakMin + rand(s) * (AIR.crossPeakMax - AIR.crossPeakMin)
     const a = arc(dist(carrier.pos, target), peak)
@@ -444,64 +455,60 @@ const goalKickStation = (s: MatchState, p: Player): Vec2 => {
 }
 
 /**
- * Reestruturação no TIRO LIVRE (Lei 13). Enquanto a jogada está congelada:
- * - o time que cobra sobe para oferecer a jogada (o cobrador fica na bola);
- * - a defesa, numa falta PERIGOSA, arma a BARREIRA a 9,15 m na linha bola→gol
- *   (os defensores mais próximos do ponto da barreira a formam, espalhados na
- *   perpendicular); os demais mantêm a formação/marcação.
+ * Reestruturação no TIRO LIVRE (Lei 13). Enquanto a jogada está congelada, cada
+ * um se posta conforme o TIPO da cobrança (fonte única `s.fkKind`, fixada no
+ * engine):
+ * - CRUZAMENTO: carrega/marca a área como num ESCANTEIO (reaproveita `cornerStation`);
+ * - CHUTE DIRETO: o ataque abre nas pontas (rebote), a defesa arma a BARREIRA a
+ *   9,15 m na linha bola→gol e a zaga restante recua para os postes;
+ * - LONGE (recomposição): joga normal (ataca/marca) — cobrança rápida, sem amontoar.
  */
 const freeKickStation = (s: MatchState, p: Player): Vec2 => {
   const kt = s.restartTeam as TeamId
   const dir = s.attackDir[p.team]
   const home = homePos(p, dir)
   const spot = s.ball.pos
+  const kind = s.fkKind ?? 'far'
 
-  // a falta tende a CHUTE DIRETO? (perto do gol e central) — se sim, NÃO se
-  // amontoa o miolo: o lance é o cobrador colocando no canto por cima do paredão.
-  const atkGx = attackingGoalX(s.attackDir[kt])
-  const dGoal = dist(spot, vec(atkGx, FIELD.cy))
-  const likelyDirect =
-    Math.abs(spot.y - FIELD.cy) < FREEKICK.shootCone && dGoal < FREEKICK.dangerDist
+  // CRUZAMENTO na área: mesmo balé do escanteio — o ataque invade a área (1º pau/
+  // marca/2º pau) e a defesa recua para MARCAR goalside. Fonte única, sem duplicar.
+  if (kind === 'cross') return cornerStation(s, p)
 
   // time que cobra: o cobrador já está na bola; os demais sobem para o ataque
   if (p.team === kt) {
     if (p.id === s.controllerId) return p.pos
     // chute direto: espalha os companheiros nas PONTAS da área (rebote), longe do
     // canal central da batida — assim a zaga os segue para fora do miolo.
-    if (likelyDirect) {
+    if (kind === 'direct') {
+      const atkGx = attackingGoalX(dir)
       const into = atkGx === 0 ? 1 : -1
       const wing = p.id % 2 === 0 ? 1 : -1
       const x = atkGx + into * (AREA.penaltyDepth - 2)
       const y = FIELD.cy + wing * (11 + (p.id % 3) * 3)
       return vec(clamp(x, 2, FIELD.w - 2), clamp(y, 4, FIELD.h - 4))
     }
-    return attackTarget(s, p, sign(dir), home)
+    return attackTarget(s, p, sign(dir), home) // recomposição: sobe normal
   }
 
-  // defesa: só arma barreira nas faltas perigosas (perto do próprio gol). Longe,
-  // defende normalmente (marca os adversários) em vez de amontoar no miolo.
+  // defesa: só arma barreira no CHUTE DIRETO. Longe, defende normalmente (marca os
+  // adversários) em vez de amontoar no miolo.
   const goalC = vec(defendingGoalX(dir), FIELD.cy)
-  if (dist(spot, goalC) >= FREEKICK.dangerDist) return defendTarget(s, p, home)
+  if (kind !== 'direct') return defendTarget(s, p, home)
 
   // a barreira FECHA o 1º pau (o poste do lado da bola); o goleiro cobre o outro
   // canto. Quem a forma vem da FONTE ÚNICA `s.wallIds` (fixada no engine), em LEQUE
   // do poste para dentro — deixa o canto oposto (longe) para o goleiro defender.
   const idx = s.wallIds.indexOf(p.id)
-  // fora da barreira: MARCA os atacantes (espalha pela área), em vez de fazer
-  // muralha no miolo — abre o canal central para o chute por cima do paredão.
+  // fora da barreira: só a ZAGA recua, e para as PONTAS (atrás do paredão, fora do
+  // canal central do chute); os MEIAS ficam fora da área — não invadem a rota da
+  // bola correndo do meio (era isso que abafava o chute curto: meia na frente da bola).
   if (idx < 0) {
-    if (likelyDirect) {
-      // só a ZAGA recua, e para as PONTAS (atrás do paredão, fora do canal central
-      // do chute); os MEIAS ficam fora da área — não invadem a rota da bola correndo
-      // do meio (era isso que abafava o chute curto: meia parado na frente da bola).
-      if (p.role !== 'DEF') return homePos(p, dir)
-      const into = goalC.x === 0 ? 1 : -1
-      const wing = p.id % 2 === 0 ? 1 : -1
-      const x = goalC.x + into * (AREA.goalDepth + 1)
-      const y = FIELD.cy + wing * (AREA.goalHalfWidth + 2 + (p.id % 3))
-      return vec(clamp(x, 2, FIELD.w - 2), clamp(y, 4, FIELD.h - 4))
-    }
-    return defendTarget(s, p, home)
+    if (p.role !== 'DEF') return homePos(p, dir)
+    const into = goalC.x === 0 ? 1 : -1
+    const wing = p.id % 2 === 0 ? 1 : -1
+    const x = goalC.x + into * (AREA.goalDepth + 1)
+    const y = FIELD.cy + wing * (AREA.goalHalfWidth + 2 + (p.id % 3))
+    return vec(clamp(x, 2, FIELD.w - 2), clamp(y, 4, FIELD.h - 4))
   }
 
   // leque APERTADO no 1º pau: o 1º tapa o poste, os demais escalonam só uns metros
@@ -722,13 +729,12 @@ const freeKickAction = (s: MatchState, carrier: Player, dir: Dir, fwd: number): 
     return { type: 'pass', target: vec(carrier.pos.x + fwd * 3, carrier.pos.y + 4), speed, to: null }
   }
 
-  const central = Math.abs(carrier.pos.y - FIELD.cy) < FREEKICK.shootCone
+  const kind = s.fkKind ?? 'far'
 
-  // 1) CHUTE DIRETO: bola parada estende o alcance (batida sem pressão e firme).
-  //    Mira o canto OPOSTO ao lado da bola — por cima/ao redor da barreira do 1º
-  //    pau, no canto que sobra para o goleiro cobrir (curva por composure no engine).
-  const directRange = shootRangeOf(carrier.attrs, AI.shootRange) + FREEKICK.directRangeBonus
-  if (central && dGoal < directRange) {
+  // 1) CHUTE DIRETO (perto e central): bola parada estende o alcance (batida sem
+  //    pressão e firme). Mira o canto OPOSTO ao lado da bola — por cima/ao redor da
+  //    barreira do 1º pau, no canto que sobra para o goleiro (curva por composure).
+  if (kind === 'direct') {
     const ns = Math.sign(carrier.pos.y - FIELD.cy) || 1
     const aim = vec(atkGx, FIELD.cy - ns * (GOAL.width / 2 - AI.shotCornerInset))
     // CHUTE COLOCADO por cima do paredão: a bola tem de subir ACIMA do corpo ao

@@ -128,6 +128,9 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
   (27% ✅). A causa: os chutes **bloqueados/desviados ricocheteiam pra DENTRO** em vez de sair pra linha de fundo —
   é a **direção do desvio** (`COLLIDE.scatter`/restituição), não o bloqueio. Conversão escanteio→gol inconclusiva
   (contaminada pelo clockRate=2).
+- [x] ✅ **Apito no intervalo natural (WHISTLE)** — `tools/apito.ts`: feature nova validada. No apito final,
+  **100% com a bola no terço central** (jogada morta) e **0% perto de uma área** — o árbitro espera a jogada
+  morrer em vez de cortar no meio de um ataque. Funciona perfeitamente.
 - [x] ✅ **Impedimento (Lei 11)** — `tools/impedimento.ts` + `tools/offside-correto.ts`: feature nova validada em
   FREQUÊNCIA e CORREÇÃO. Frequência ~**2-3/jogo** (9.9 no clockRate=2 inflado). Correção: atacante marcado que
   pega a bola **apita** ✅, onside/não-marcado **não apita** ✅, e a linha fica no **último defensor** (x=85/89
@@ -251,6 +254,9 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
   jogo que o jogador assiste está ÓTIMO** ✅. Residual (realismo interno, não afeta o placar): 4.9 chutes (baixo) ×
   51% conversão (alta) × GK fraco se compensam pra dar gols realistas. Output excelente; "mais correto" internamente
   = +chutes/−conversão/+GK.
+- [x] ✅ **Caos por divisão** — `tools/caos-divisao.ts`: feature nova validada. Irregularidade intra-jogador escala
+  A→D: σ interno **9.4→21.1**, amplitude **34→70**, % com spike **42%→99%**, % com buraco **39%→100%**. Série D =
+  elencos crus (pace 90/força 20) ✅. Nota: D bem extrema (100% com buraco) — suavizar via `tankDrop`/`jitter` da config D se quiser.
 - [x] ✅ **Dados dos elencos** — `tools/elenco-dados.ts`: **5/5 testes de coerência posicional passam** (FWD+rápido
   que DEF, FWD finaliza melhor, DEF desarma melhor, GK 93×15 linha, MID+fôlego). Após dar fraquezas reais aos
   jogadores: spread AUMENTOU (dribbling 36–99, passing 42–97, pace 50–97). **Dados NÃO são a causa do 0×0.**
@@ -357,8 +363,13 @@ Ordem aproximada de impacto:
    igual; a única variação é ruído por jogador (`gauss*5`) que se anula na média (18 jogadores) → desvio só 0.4.
    Confirmado em TODAS as divisões (amplitude 1.2–1.6, variância toda ENTRE divisões, nada DENTRO). Fix: somar
    um **offset de força por CLUBE** (ex.: tier ±8) → amplitude ~16 (campeão acima do rebaixado). *Montar elenco vira título.*
-   **AINDA ABERTO** (re-medido it.58: campeão-forte 10%, Spearman 0.24 — inalterado; os fixes recentes foram no
-   gameplay, não na geração de clubes). É o principal pendente da CARREIRA, e é uma correção isolada em `generate.ts`.
+   **AINDA ABERTO** (re-medido it.68). O usuário adicionou `DIVISION_CHAOS` (caos intra-jogador: pace 90/força 20 no
+   mesmo cara nas div. baixas — bom p/ feel de elenco cru e arquétipos), mas isso NÃO resolve o #-2: a amplitude de
+   força ENTRE clubes segue **1.6** (precisa ~16), campeão-forte 10→17%, Spearman 0.24→0.32 (ruído). Falta o que o
+   #-2 pede: **tier de força POR CLUBE** (uns clubes miram `DIVISION_LEVEL` mais alto = os "grandes"), não caos por jogador.
+   **PROVA DO FIX it.69 (`tabela-comfix.ts`)**: somando um tier de força por clube (`gauss × ~8`), a tabela vira
+   REALISTA — campeão-forte 16%→**48%**, Spearman 0.29→**0.74**, mais forte termina 7º→**2.4º**. Confirma o lever
+   exato: no `generateSquad`, `level += clubTier` (sorteado 1× por clube, ~gauss*8).
 -1. **✅ RESOLVIDO — "POUCOS GOLS NA SÉRIE D"** (`tools/gols-divisao-motor.ts`). ANTES: motor físico A=0.90 /
    D=**0.38** gols (quase 0×0), ~1.3-2.7 chutes/jogo. DEPOIS dos fixes do usuário (mais chutes + "chute por cima"
    `SHOT.skyBase`): **A=3.85 / B=3.63 / C=2.80 / D=3.13 gols/jogo**, **13-15 chutes/jogo**, conversão 31%→24%.
@@ -372,12 +383,18 @@ Ordem aproximada de impacto:
    desarme/marcação); **volante subvalorizado** (Casemiro 76, desarme/força 90); **ponta-drible subvalorizada**
    (Vini 82 < Endrick 85, finishing pesa 0.26). Distorce `teamStrength`/valor/escalação. Lever: normalizar escala
    GK vs linha + sub-perfis (lateral ofensivo, DM, ponta) nos `WEIGHTS`.
+   **PROVA DO FIX it.72 (`overall-fix.ts`)**: com GK ×0.9 + sub-perfis (max clássico/moderno): Alisson 97→**87**,
+   Wendell 46→**72**, Casemiro 76→**92**, Vini 82→**93**, Messi 90→90 (já certo). Top-5 sai de "2 GKs no topo" p/
+   craques de linha (Vini/Casemiro/Marquinhos/Raphinha/Di María). Pesos ilustrativos (afinar), mas a abordagem resolve.
 -3. **📈 Evolução de jogador desbalanceada (carreira fácil)** (`tools/evolucao.ts`) — `agePlayers`+núcleo. Joia
    (18/60 OVR): num RIVAL sobe só **+6** (66 aos 24) e ESTAGNA; no SEU clube dispara pra **78 aos 24 (+18)** e
    segue até **91**. Assimetria (seu núcleo +2/ano vs rival +0) = seu time BOLA-DE-NEVE, mundo estagna → carreira
    fácil (selftest: **20/20 zeram em ≤3 temporadas**, o "máx" caiu de 4→3 após as edições — ficou ainda mais fácil).
    Também: prime (25-29) é **flat** pros rivais (sem pico real). Levers:
    `career.ts:189` (crescimento jovem p/ TODOS ~+2-3, pico no prime) e `career.ts:400` (núcleo +2 é generoso demais).
+   **PROVA DO FIX it.70 (`evolucao-fix.ts`)**: hoje o gap seu×rival cresce **-3 → +11 (24) → +23 (30)** (bola-de-neve).
+   Com regra SIMÉTRICA (jovem +2, pico no prime 25-28, sem bônus só-seu), a joia sobe saudável (61→77 no pico) e o
+   **gap fica constante em +2** — mundo acompanha, carreira tem desafio. Fix = tirar o +2 só-do-núcleo + pico no prime p/ todos.
 0. **🚨 84% DOS JOGOS 0×0 + conversão alta — ACOPLADOS** (`tools/elenco-real.ts` + `tools/clockrate-sweep.ts`).
    Varredura de clockRate (elencos reais) — gols/jogo · chutes/jogo · conversão · %0×0:
    | clockRate | gols | chutes | conv | 0×0 |

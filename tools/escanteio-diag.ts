@@ -81,8 +81,8 @@ for (let i = 0; i < N; i++) {
         }
         if (s.score[w.team] > w.score0) w.sawGoal = true
       }
-      // janela de ~6s de JOGO (liveSteps) após a cobrança — não conta o congelamento
-      if (w.launched && (w.liveSteps > 180 || w.sawGoal)) {
+      // janela de ~3s de JOGO (liveSteps) após a cobrança — não conta o congelamento
+      if (w.launched && (w.liveSteps > 90 || w.sawGoal)) {
         finalize(w); w = null
       } else if (w.steps > 400) { // trava de segurança
         finalize(w); w = null

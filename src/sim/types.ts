@@ -11,6 +11,15 @@ export type Role = 'GK' | 'DEF' | 'MID' | 'FWD'
 export type Dir = 1 | -1
 
 /**
+ * Tipo de cobrança de um TIRO LIVRE, pela POSIÇÃO da falta (Lei 13): perto e
+ * central → CHUTE DIRETO por cima da barreira; avançado mas fora do cone (ou de
+ * lado) → CRUZAMENTO na área para o cabeceio; longe → RECOMPOSIÇÃO com um passe.
+ * Fonte única (ver `freeKickKind`) para o motor (barreira/congelamento) e a IA
+ * (posicionamento/decisão) andarem sempre juntos.
+ */
+export type FreeKickKind = 'direct' | 'cross' | 'far'
+
+/**
  * Atributos no estilo Football Manager — escala 0 a 100 (ver atributos.md).
  * TODOS são consumidos pela simulação; as fórmulas vivem em ratings.ts.
  */
@@ -248,6 +257,11 @@ export interface MatchState {
    *  NÃO cabecear a bola alçada por cima — o chute por cima do paredão é do goleiro.
    *  Vazio fora de um tiro livre perigoso; some quando a jogada se resolve. */
   wallIds: number[]
+  /** tipo da cobrança do tiro livre em andamento (chute direto / cruzamento na
+   *  área / recomposição), classificado pela POSIÇÃO da falta em `setupFreeKick`.
+   *  Fonte única lida pela IA (posicionamento e decisão) e pelo motor (barreira,
+   *  congelamento e hustle). `null` fora de um tiro livre (ver `freeKickKind`). */
+  fkKind: FreeKickKind | null
   /** tempo (s) restante em que um CHUTE DIRETO de falta está "no ar" rumo ao gol:
    *  enquanto corre, os jogadores de LINHA não cabeceiam/abafam a bola alta (só o
    *  goleiro defende, ou ela bate na barreira rasteira / entra / sai) — um petardo

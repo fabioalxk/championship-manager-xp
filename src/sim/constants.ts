@@ -75,6 +75,16 @@ export const AIR = {
   /** chance de um cruzamento da ponta sair FLUTUADO (alto) em vez de rasteiro
    *  (0.95: quase sempre alçado, p/ o cabeceio na área) */
   crossLoftChance: 0.95,
+  /** pico (m) do arco do ESCANTEIO — mais ALTO que o cruzamento de jogo aberto: a
+   *  cobrança é uma bola AÉREA que flutua e cai na área (sobe ~3.6-4.6m), dando tempo
+   *  do atacante atacar a bola de cabeça. Vem com a velocidade horizontal mais BAIXA
+   *  (ver cornerArcSpeedMin) — bola mais lenta e "chapéu", não um tenso rasteiro. */
+  cornerPeakMin: 4.0,
+  cornerPeakMax: 5.0,
+  /** piso da velocidade horizontal (m/s) SÓ do escanteio: mais baixo que arcSpeedMin
+   *  para o arco alto ainda POUSAR na área (sem esse piso menor a bola atravessaria a
+   *  área). É o que deixa a cobrança flutuar lenta em vez de sair esticada. */
+  cornerArcSpeedMin: 5,
   /** pico (m) do arco do TIRO DE META / chutão longo do goleiro */
   goalKickPeak: 6.5,
   /** pico (m) do arco do lançamento longo de alívio (sem alvo claro) */
@@ -126,6 +136,22 @@ export const MATCH = {
    *  (isso é o multiplicador de velocidade). Com 40 e o Normal (1.5x), o relógio
    *  anda ~60s de jogo por segundo real ≈ 1 minuto a cada segundo. */
   clockRate: 40,
+}
+
+/**
+ * APITO DE FIM DE TEMPO (Lei 7 na prática). Esgotado o tempo (45'/90' + acréscimos),
+ * o árbitro NÃO apita no meio de um lance de ataque: ele espera uma PAUSA NATURAL —
+ * a bola numa região neutra (meio-campo), rolando no chão, longe das áreas e sem um
+ * chute em curso. Só então soa o apito do intervalo / fim de jogo. Um TETO de espera
+ * garante que o tempo não se estique para sempre se a bola nunca acalmar.
+ */
+export const WHISTLE = {
+  /** meia-largura (m) da FAIXA NEUTRA em torno do meio-campo onde o apito é liberado.
+   *  17.5 = terço central exato (a bola precisa ter voltado ao meio, longe das áreas). */
+  neutralHalfWidth: 17.5,
+  /** teto de espera (s de JOGO) por uma pausa natural depois de esgotado o tempo —
+   *  passado isso o árbitro apita de qualquer jeito (não deixa o tempo esticar sem fim). */
+  maxExtraWait: 90,
 }
 
 /**
@@ -181,14 +207,14 @@ export const FREEKICK = {
    *  (não se estende até o meio do gol), deixando o canto OPOSTO livre para o
    *  cobrador enfiar/levantar a bola; o goleiro é quem cobre esse outro canto */
   wallWidth: 2.4,
-  /** distância ao gol (m) abaixo da qual a falta é "perigosa": arma barreira */
-  dangerDist: 30,
-  /** desvio lateral máximo do centro do gol (m) p/ tentar o CHUTE DIRETO */
-  shootCone: 18,
-  /** alcance extra (m) do chute direto sobre o de jogo — bola PARADA, batida limpa.
-   *  Curto de propósito: de muito longe (30 m+) a falta vira LANÇAMENTO na área, não
-   *  chute direto (como na vida real) — evita a cauda de gols fáceis de fora. */
-  directRangeBonus: 3,
+  /** desvio lateral máximo do centro do gol (m) p/ tentar o CHUTE DIRETO — cone
+   *  APERTADO da zona clássica do "D". De lado disso a falta perigosa vira
+   *  CRUZAMENTO na área (não se bate direto de ângulo fechado, como na vida real). */
+  directCone: 11,
+  /** distância ao gol (m) até onde se tenta o CHUTE DIRETO. Além dela (mas dentro
+   *  de `launchDist`) a falta é ALÇADA na área em vez de batida — evita a cauda
+   *  irreal de gols diretos de muito longe. Curta de propósito. */
+  directMaxDist: 28,
   /** altura-alvo (m) com que o chute direto CHEGA ao gol — calcula o loft para a
    *  bola subir POR CIMA do paredão (9,15 m) e cair nesse canto (alto, sob o
    *  travessão). Vale para perto e longe: perto sobe menos, longe sobe mais. */
@@ -980,15 +1006,16 @@ export const RESTART = {
     { depth: 10, side: 5 }, // 2º pau
     { depth: 14, side: 0 }, // entrada da área (rebote/afastamento curto)
   ],
-  /** slots da DEFESA no escanteio: recua para dentro da própria área e protege o
-   *  GOL — GOALSIDE dos atacantes (mais fundo, na boca/6m e nos postes). Fica atrás
-   *  da zona de queda para o atacante disputar o 1º toque (senão a zaga corta tudo). */
+  /** slots da DEFESA no escanteio: marca na ZONA DE QUEDA, GOALSIDE dos atacantes
+   *  (~1-2m mais perto do gol que cada alvo do ataque) para DISPUTAR o cabeceio —
+   *  nem tão fundo que deixa o atacante cabecear livre (gol fácil), nem tão à frente
+   *  que corta tudo pra fora (loop de escanteio). Um fica na boca cobrindo o gol. */
   cornerDefSlots: [
-    { depth: 2, side: -3 }, // 1º pau (linha)
-    { depth: 2, side: 3 }, // 2º pau (linha)
-    { depth: 5, side: 0 }, // miolo da pequena área
-    { depth: 6, side: -5 },
-    { depth: 7, side: 4 },
+    { depth: 5, side: -3 }, // contesta o 1º pau
+    { depth: 7, side: 2 }, // contesta o miolo
+    { depth: 9, side: -1 }, // contesta a marca do pênalti
+    { depth: 8, side: 5 }, // contesta o 2º pau
+    { depth: 3, side: 0 }, // cobre a boca do gol (apoio ao goleiro)
   ],
   /** profundidade (m), a partir do meio-campo rumo ao PRÓPRIO campo, onde os
    *  zagueiros do time que COBRA o escanteio seguram (proteção ao contra-ataque) */
