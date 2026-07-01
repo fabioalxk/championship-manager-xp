@@ -29,6 +29,34 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
 
 ---
 
+## 📊 PLACAR DE SAÚDE DO JOGO (snapshot it.81)
+
+**GAMEPLAY — bom estado:**
+| sistema | estado | número atual |
+|---|---|---|
+| Placar / 0×0 | ✅ (leve viés) | 3.04 gols/jogo, 2% 0×0 (real ~2.6 / ~7%) |
+| 39 atributos | ✅ | todos monotônicos, % de sucesso mapeada |
+| Tiro livre | ✅ resolvido | 8.5% conversão direta (real ~5-8%) |
+| Impedimento (Lei 11) | ✅ freq+correção | ~2-3/jogo, apita só o offside |
+| Apito no intervalo (WHISTLE) | ✅ | 100% central, 0% na área |
+| Lesões, indireto, box runners | ✅ | funcionam |
+| GK diferencia por nível | ✅ | GK90 sofre 36% menos que GK30 |
+| GK fraco no absoluto | ⚠️ | salva ~22% (real ~68%) — conversão alta, mas placar OK |
+| Cruzamento/aéreo | ⚠️ | 24% dos gols aéreos (real ~15-20%) |
+| Poucos chutes | ⚠️ | ~5/jogo (real ~25) — compressão de tempo |
+
+**CARREIRA — estrutura pendente (3 fixes PROVADOS):**
+| # | problema | fix provado | resultado do fix |
+|---|---|---|---|
+| #-2 | tabela aleatória | tier de força por clube (`gauss×8`) em `generate.ts` | campeão-forte 16→**48%** |
+| #-3 | fácil (snowball) | evolução simétrica em `career.ts` | gap +23 → **+2 constante** |
+| #-4 | overall mis-avalia | GK ×0.9 + sub-perfis em `overall.ts` | arquétipos justos |
+| — | caos, reputação, ofertas | (já feitos pelo usuário) | ✅ validados |
+
+**Nada quebrado** — build limpo, suíte passa. Detalhes de cada item abaixo.
+
+---
+
 ## ⚽ FÍSICO
 
 - [x] ✅ **pace** — `maxSpeed` · velocidade de topo **7.1→9.7 m/s** (30→90). Sim dedicada `tools/velocidade.ts`:
@@ -103,8 +131,10 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
   exato é a defesa de PERTO: `GK.saveClosePen` (alto demais) e `oneOnOneBonus` (fraco), não o saveBase geral.
   **⚠️ NOVO it.62**: o usuário reduziu `saveBase 0.3→0.07` E `saveSkill 0.45→0.09` (pra Série D converter). Efeito:
   GK salva **15-22% por nível** (GK90 só 22%, real ~75%) — fraco demais; e a diferença GK30→90 caiu de **32→7 pts**
-  = **o atributo do goleiro parou de importar** (goleiro craque ≈ perna-de-pau). Enfraquecer o GK pra compensar
-  poucos chutes quebra o realismo E a diferenciação. Correção certa = +volume de chute, não GK quebrado.
+  = a diferença ISOLADA por chute encolheu. **PORÉM — CORRIGIDO it.78 (`gk-importa.ts`)**: EM PARTIDA o atributo
+  do GK ainda importa MUITO — time com GK 90 sofre **23.75 gols/jogo** vs GK 30 **37.21** (+36%). O saveSkill baixo
+  reduz a defesa ABSOLUTA (GK fraco), mas a DIFERENCIAÇÃO por nível se mantém (acumula em ~100 chutes + aerialReach
+  + posicionamento). Então: GK fraco no total, mas goleiro bom ainda vale. A preocupação "GK decorativo" era falsa.
   **WHAT-IF it.64 (`whatif-chutes.ts`)**: conversão por chute da área — GK atual **59%**, GK "normal" (0.30/0.45)
   ainda **36%** (isolado best-case; em jogo cairia p/ ~15-20%). Hoje ~5.5 chutes × 59% = 2.6 gols (frágil). Rota
   realista = +chutes × GK MAIS forte que os defaults antigos (nem o 0.30/0.45 basta) — os dois juntos, não um só.
@@ -149,8 +179,16 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
 - [x] ✅ **Lesões (INJURY)** — `tools/lesoes.ts`: feature nova validada. **10.1% das faltas machucam** (config
   6%×(1+agr) ≈ 9-11% ✅), 3.0/jogo, 16.7% graves. Impacto no ritmo confirmado: sadio 33.7 → leve 30.3 (-10%)
   → grave **24.9 km/h (-26%)** via `knock`. (Corrigi `_simlib.mkP` que faltava o novo campo `knock`.)
-- [x] ✅ **Regressão (suíte do projeto)** — `node tools/run-tests.mjs` passa limpo após as edições (indireto FK,
-  elencos, faltas): carreira 20/20 zera, fluxo+motor ok, telas renderizam. Nada quebrou.
+- [x] ✅ **Carreira completa (rica)** — `tools/carreira-rica.ts`: 20 carreiras D→título. Reputação final média **61**
+  (campeão passa do gate ✅). GAP de força ao vencer a Série A: MEU time **86.7** vs rivais **78.7 = +8.0** — confirma
+  o #-3 (snowball) no nível do elenco inteiro (real ~+3-5). Por isso zera em 3.7 temporadas. Fix da evolução → gap ~2-4.
+- [x] ✅ **Reputação do técnico** — `tools/reputacao.ts`: feature nova validada. Começa 25, gate de ofertas 45.
+  Ascensão (promove+campeão) 25→80, destrava ofertas na temp. 3 ✅; fracasso (rebaixado) → 0 ✅; medíocre estagna.
+  Progressão coerente. Nota: top-8 estável na elite (+2/ano) nunca chega ao gate — mid-table respeitável não recebe oferta.
+- [x] ✅ **Regressão (suíte do projeto)** — `node tools/run-tests.mjs` passa limpo após TODAS as edições (FK refactor,
+  offside, WHISTLE, caos, reputação): carreira 20/20 zera, fluxo+motor ok, telas renderizam. Nada quebrou.
+  **it.79**: carreira ficou mais DIFÍCIL — temporadas até zerar **3.0 (máx 3) → 3.7 (máx 6)** — o caos + a reputação
+  adicionaram fricção (parcial no #-3, sem resolver a bola-de-neve).
 - [x] ✅ **Invariantes / robustez** — `tools/invariantes.ts`: 0% NaN/Infinity, 0% escapa do campo, 0% energia
   fora dos limites, 0% deadlock, todas terminam em 96 min. **Física/estado SÓLIDOS** — os problemas são de
   balanceamento/IA, não de motor quebrado.
@@ -181,10 +219,17 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
   (curva por distância), reequilibrar barreira/GK, e voltar a permitir o cruzamento como opção.
   **Impacto real BAIXO** (`tools/gols-por-jogada.ts`): só **1.1 chutes de falta/jogo** → contribuem **<0.5% dos
   gols** da partida. É problema de FEEL (quando rola uma falta boa, entra fácil demais), não de placar.
+  **it.74 — inverteu de novo:** após o refactor `FreeKickKind`, 0% direct / 100% cross.
+  **it.76 — RESOLVIDO** ✅ (usuário ajustou `aimSpread 0.15` + `gkSetBonus 0.64`): conversão direta **8.5%**
+  (central 8.9%, real ~5-8%) e MIX de cobrança (425 direto / 575 cruz-recomposição, não mais "100% chute").
+  Saga completa: **2.7% → 27% → 0% → 14.9% → 8.5%** — convergiu na faixa real. Tiro livre fechado.
 - [x] ✅ **Pênaltis** — `tools/penaltis.ts`: frequência **0.1/jogo** (raro, plausível). Cobrança ISOLADA (fiel:
   chute no canto de 11m, GK centrado): **craque converte 74%** (real ~75-78% ✅), vs GK top 63%. ⚠️ cobrador
   **médio só 37%** (real ~65%) — baixo, pois depende da precisão (finishing) e o motor não dá a "vantagem do
   batedor" (GK reage como num chute normal). Fraqueza menor; elite está perfeito.
+  **Re-medido it.84** (após enfraquecer o GK): craque **88%** (era 74%, real ~75% — agora um tico alto), médio 58%.
+  ⚠️ o nível do GK ficou IRRELEVANTE no pênalti — craque converte 88% contra GK 50 E GK 80 (idêntico); `saveSkill 0.09`
+  achatou. Goleiro pegador de pênalti (oneOnOne alto) não defende mais que mediano. Cai junto se fortalecer o GK.
 - [x] ✅ **Impedimento (Lei 11) — AGORA APITADO** — além do posicional (corridas limitadas na linha do penúltimo
   zagueiro via `offsideLineFwd`+`offsideSlack`), o motor marca offside: no instante do passe em jogo, os atacantes
   além da linha (+`OFFSIDE.margin`), além da bola e no campo de ataque ficam pendentes (`offsidePend`); se um deles
@@ -250,10 +295,10 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
   usado no engine — a mecânica de placar/relógio está ligada ao motor via este consumo real.)
 - [x] ✅ **Elencos REAIS (Brasil×Argentina, clockRate real)** — `tools/elenco-real.ts`. ANTES (#0): **84% 0×0**,
   0.16 gols/jogo. DEPOIS dos fixes do usuário (re-medido it.66): **2.52 gols/jogo, só 6% de 0×0**, distribuição
-  de placares variada e realista (1×0, 1×1, 1×2, 0×2, 1×3, 2×2, 3×0...), jogos competitivos. **#0 RESOLVIDO — o
-  jogo que o jogador assiste está ÓTIMO** ✅. Residual (realismo interno, não afeta o placar): 4.9 chutes (baixo) ×
-  51% conversão (alta) × GK fraco se compensam pra dar gols realistas. Output excelente; "mais correto" internamente
-  = +chutes/−conversão/+GK.
+  de placares variada e realista (1×0, 1×1, 1×2, 0×2, 1×3, 2×2, 3×0...), jogos competitivos. **#0 RESOLVIDO** ✅.
+  **Re-medido it.77**: leve DERIVA pra mais gols — **3.04 gols/jogo** (era 2.52) e só **2% de 0×0** (era 6%, agora
+  baixo vs ~7% real), 66% com 3+ gols. Ainda jogável, mas indo pra "jogo de 3-3". Motor: conversão 59% (GK fraco).
+  Lever p/ voltar a ~2.6 gols = fortalecer o GK.
 - [x] ✅ **Caos por divisão** — `tools/caos-divisao.ts`: feature nova validada. Irregularidade intra-jogador escala
   A→D: σ interno **9.4→21.1**, amplitude **34→70**, % com spike **42%→99%**, % com buraco **39%→100%**. Série D =
   elencos crus (pace 90/força 20) ✅. Nota: D bem extrema (100% com buraco) — suavizar via `tankDrop`/`jitter` da config D se quiser.
@@ -404,9 +449,10 @@ Ordem aproximada de impacto:
    | 6 | 2.0 | 5.9 | 34% | 20% |
    | **2** | 8.5 | **25** | 34% | 0% |
    | 1 | 26 | 76 | 34% | 0% |
-   **Não dá pra acertar só com clockRate:** em clockRate≈2 os chutes ficam reais (25/jogo) mas saem 8.5 gols,
-   porque a conversão trava em **~34%** (3× alta). **Correção tem que ser dupla:** `MATCH.clockRate`≈2
-   (volume de chutes) **+** fortalecer o GK (`GK.saveBase`/`saveSkill`) pra conversão cair a ~10% → 25×10% = ~2.5 gols. *Maior impacto.*
+   **Não dá pra acertar só com clockRate.** **Re-medido it.85 no build ATUAL** (shipado clockRate=40): 40→5.2 chutes/3.0
+   gols; 24→11ch/5.6g; 12→18ch/8.9g. Alvo ~25 chutes = `clockRate ~9`, mas aí conversão 49% → **~12 gols** (absurdo).
+   **Correção DUPLA com números exatos: `clockRate ~9` (→ ~25 chutes) + GK forte (conversão 49%→~10%) → 25×10% = ~2.5
+   gols** = realista em chutes E gols. Nenhum dos dois sozinho funciona. *Maior impacto; o GK é o lever central.*
 2. **Pressing subdimensionado** — workRate 25→90 move só 6.1→7.5% de roubadas altas (real ~15-25%).
    Lever: peso de workRate/aggression no `ai.ts` (pressing) e `tackleRange`.
 3. **Cross→gol ~2× alto + GK crava 43% dos cruzamentos** (alto). Lever: `GK.claim*`.

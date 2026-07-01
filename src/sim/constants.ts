@@ -233,11 +233,11 @@ export const FREEKICK = {
   /** dispersão angular EXTRA (rad) do chute direto — o tiro livre é de baixa
    *  conversão: muitos vão por cima, na barreira ou raspando a trave. Sem isso quase
    *  todos saem enquadrados e viram gol fácil (irreal). */
-  aimSpread: 0.07,
+  aimSpread: 0.15,
   /** bônus de defesa do goleiro contra o chute DIRETO de falta — ele está POSTADO
    *  e à espera da cobrança (bola parada), logo defende bem mais que num chute de
    *  jogo. É o que segura a conversão na faixa real (~6-8% p/ bons batedores). */
-  gkSetBonus: 0.17,
+  gkSetBonus: 0.64,
 }
 
 /**

@@ -766,8 +766,9 @@ const freeKickAction = (s: MatchState, carrier: Player, dir: Dir, fwd: number): 
     }
   }
 
-  // 2) LANÇAMENTO na área: avançado o bastante para alçar a bola no ataque
-  if (dGoal < FREEKICK.launchDist) {
+  // 2) CRUZAMENTO na área: avançado mas de lado/fora do alcance do chute — alça a
+  //    bola na área carregada (mesmo alvo do escanteio/cruzamento) para o cabeceio.
+  if (kind === 'cross') {
     const target = crossTarget(s, atkGx)
     const a = arc(dist(carrier.pos, target), FREEKICK.launchPeak)
     return {

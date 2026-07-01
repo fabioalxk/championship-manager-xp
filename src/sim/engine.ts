@@ -756,7 +756,6 @@ export const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2, indirect 
   const atkGx = attackingGoalX(s.attackDir[team])
   const kind = freeKickKind(spot, atkGx)
   const dangerous = kind !== 'far' // chute direto ou cruzamento: vale esperar/posicionar
-  s.fkKind = kind
 
   // o cobrador (jamais o jogador caído na falta): no CHUTE DIRETO o melhor batedor
   // assume (bate por cima da barreira); senão, o companheiro de linha mais próximo.
@@ -770,9 +769,12 @@ export const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2, indirect 
       : pool.reduce((b, p) => (dist(p.pos, spot) < dist(b.pos, spot) ? p : b))
 
   placeTaker(taker, spot)
-  // falta perigosa congela mais: a barreira se forma e o ataque carrega a área
+  // falta perigosa congela mais: a barreira se forma e o ataque carrega a área.
+  // `placeDeadBall` chama `endFreeKickPhase` (zera fkKind/wallIds), então o TIPO e
+  // a barreira desta cobrança são fixados DEPOIS dele.
   placeDeadBall(s, taker, team, dangerous ? FREEKICK.deadballDanger : FREEKICK.deadball)
   s.freeKick = true
+  s.fkKind = kind
   // INDIRETO (impedimento, recuo pego com a mão): registra o cobrador; o gol só
   // vale após um 2º toque (ver `resolveBounds`), e a IA toca curto (freeKickAction).
   if (indirect) {

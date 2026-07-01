@@ -15,12 +15,11 @@
  *
  * Argumentos opcionais: node tmp-fk.mjs <nTrials> (padrão 1000).
  */
-import { createMatch, step } from '../src/sim/engine'
-import { DUEL, FIELD, FREEKICK, GOAL } from '../src/sim/constants'
-import { attackingGoalX } from '../src/sim/formation'
-import { nrm } from '../src/sim/ratings'
+import { createMatch, setupFreeKick, step } from '../src/sim/engine'
+import { FIELD, GOAL } from '../src/sim/constants'
+import { attackingGoalX, freeKickKind } from '../src/sim/formation'
 import { seedRng } from '../src/sim/rng'
-import { dist, vec } from '../src/sim/vector'
+import { vec } from '../src/sim/vector'
 import type { MatchState, Player, TeamId, Vec2 } from '../src/sim/types'
 
 /** Modo de qualidade do cobrador testado. */
@@ -46,82 +45,52 @@ const makeRng = (seed: number) => {
   }
 }
 
-/** Mesma avaliação de batedor do engine (longShots/finishing/technique). */
-const placedKickRating = (p: Player): number =>
-  nrm(p.attrs.longShots) * 0.5 + nrm(p.attrs.finishing) * 0.3 + nrm(p.attrs.technique) * 0.2
-
 /**
- * Arma o tiro livre no estado da partida — espelha `setupFreeKick`+`placeDeadBall`
- * do engine (que são internos). O resto (decisão, barreira, física, defesa) roda
- * pelo `step` real.
+ * Arma o tiro livre pelo MESMO caminho do jogo — `setupFreeKick` (escolha do
+ * cobrador, TIPO da cobrança, barreira e congelamento) — e só então transforma o
+ * cobrador num especialista. Assim o teste vê a barreira e a decisão REAIS; o
+ * resto (física, defesa, goleiro) roda pelo `step`.
  */
 const armFreeKick = (s: MatchState, team: TeamId, spot: Vec2): Player => {
-  const pool = s.players.filter((p) => p.team === team && p.role !== 'GK')
-  const taker = pool.reduce((b, p) => (placedKickRating(p) > placedKickRating(b) ? p : b))
+  setupFreeKick(s, team, spot)
+  const taker = s.players.find((p) => p.id === s.controllerId)!
   if (MODE === 'specialist') makeSpecialist(taker)
-
-  taker.pos = { ...spot }
-  taker.vel = vec(0, 0)
-  taker.prevPos = { ...spot }
-  taker.smTarget = { ...spot }
-  taker.settled = false
-
-  const b = s.ball
-  b.pos = { ...spot }
-  b.prevPos = { ...spot }
-  b.prevZ = 0
-  b.vel = vec(0, 0)
-  b.z = 0
-  b.vz = 0
-  b.spin = 0
-
-  const atkGx = attackingGoalX(s.attackDir[team])
-  const dGoal = dist(spot, vec(atkGx, FIELD.cy))
-  const dangerous = dGoal < FREEKICK.dangerDist
-  const deadball = dangerous ? FREEKICK.deadballDanger : FREEKICK.deadball
-
-  s.possession = team
-  s.restartTeam = team
-  s.goalKick = false
-  s.throwIn = false
-  s.penalty = false
-  s.freeKick = true
-  s.controllerId = taker.id
-  s.lastTouchId = taker.id
   s.lastShooterId = null
-  s.lastPasserId = null
-  s.holdTime = 0
-  s.kickCooldown = 0
-  s.tackleCooldown = deadball + DUEL.cooldown
-  s.deadball = deadball
-  s.outOfPlay = 0
-  s.pendingGoalLineX = null
-  s.goalKickWait = 0
   return taker
 }
 
-type Outcome = 'goal' | 'saved' | 'blocked' | 'offTarget' | 'rebound' | 'launch' | 'unresolved'
-type Result = { outcome: Outcome; reachedMouth: boolean }
+type Outcome = 'goal' | 'saved' | 'blocked' | 'offTarget' | 'rebound' | 'unresolved'
+type Kind = 'direct' | 'cross' | 'far'
+type Result = {
+  kind: Kind
+  shotDirect: boolean // o cobrador BATEU direto ao gol (vs. lançou/tocou)
+  outcome: Outcome
+  scoredByTaker: boolean // gol creditado ao cobrador (gol direto de falta)
+  reachedMouth: boolean
+}
 
-/** Roda UM tiro livre até resolver e classifica o desfecho. */
+/** Roda UM tiro livre até resolver e classifica o desfecho e o TIPO de cobrança. */
 const runOne = (seedTrial: number, spot: Vec2): Result => {
   const s = createMatch()
   s.rngState = seedRng(seedTrial) // variedade determinística por tentativa
   const team: TeamId = 'home'
   const taker = armFreeKick(s, team, spot)
+  const kind = (s.fkKind ?? 'far') as Kind
   const score0 = s.score[team]
   const goalX = attackingGoalX(s.attackDir[team])
 
   let kicked = false
+  let shotDirect = false
   let reachedMouth = false
+  const base = { kind, shotDirect: false, scoredByTaker: false }
   const dt = 1 / 60
   for (let f = 0; f < 720; f++) {
     step(s, dt)
 
     if (!kicked && !s.freeKick) {
-      // a cobrança saiu neste passo: chute direto se o crédito foi do cobrador
+      // a cobrança saiu neste passo: foi CHUTE DIRETO se o crédito é do cobrador
       kicked = true
-      if (s.lastShooterId !== taker.id) return { outcome: 'launch', reachedMouth: false }
+      shotDirect = s.lastShooterId === taker.id
     }
     if (!kicked) continue
 
@@ -134,26 +103,29 @@ const runOne = (seedTrial: number, spot: Vec2): Result => {
     )
       reachedMouth = true
 
-    // GOL: placar do cobrador subiu (autor = cobrador, pois lastShooterId é dele)
-    if (s.score[team] > score0) return { outcome: 'goal', reachedMouth: true }
+    // GOL do time que cobra (direto do cobrador OU cabeceio de companheiro no cruzamento)
+    if (s.score[team] > score0)
+      return { ...base, shotDirect, outcome: 'goal', scoredByTaker: s.lastShooterId === taker.id, reachedMouth }
 
-    // a defesa recuperou (goleiro encaixou / zagueiro dominou) → defendido/bloqueado
+    // a defesa recuperou (goleiro encaixou / zagueiro afastou) → defendido/bloqueado
     if (s.controllerId !== null) {
       const owner = s.players.find((p) => p.id === s.controllerId)!
       if (owner.team !== team) {
         const lastEv = s.events[s.events.length - 1]
-        return { outcome: lastEv && lastEv.type === 'save' ? 'saved' : 'blocked', reachedMouth }
+        return { ...base, shotDirect, outcome: lastEv && lastEv.type === 'save' ? 'saved' : 'blocked', reachedMouth }
       }
-      if (owner.id !== taker.id) return { outcome: 'rebound', reachedMouth }
+      // companheiro pegou a sobra: no CHUTE DIRETO é rebote; no CRUZAMENTO deixa a
+      // jogada correr (o cabeceio/finalização pode sair) — não encerra aqui.
+      if (owner.id !== taker.id && shotDirect) return { ...base, shotDirect, outcome: 'rebound', reachedMouth }
     }
 
     // bola morreu na linha de fundo (defesa espalmou pra escanteio / passou raspando)
     if (s.outOfPlay > 0 || s.pendingGoalLineX !== null) {
       const lastEv = s.events[s.events.length - 1]
-      return { outcome: lastEv && lastEv.type === 'save' ? 'saved' : 'offTarget', reachedMouth }
+      return { ...base, shotDirect, outcome: lastEv && lastEv.type === 'save' ? 'saved' : 'offTarget', reachedMouth }
     }
   }
-  return { outcome: 'unresolved', reachedMouth }
+  return { ...base, shotDirect, outcome: 'unresolved', reachedMouth }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,12 +139,14 @@ const bands = [
   { label: '30–36 m', lo: 30, hi: 36 },
 ]
 
-const tally: Record<Outcome, number> = {
-  goal: 0, saved: 0, blocked: 0, offTarget: 0, rebound: 0, launch: 0, unresolved: 0,
-}
-// por faixa: chutes diretos e gols (entre os que o cobrador BATEU direto)
+// quantos de cada TIPO de cobrança (chute direto / cruzamento / recomposição) e o
+// desfecho — valida que a falta "ocorre da forma certa" conforme o LOCAL.
+const kinds: Record<Kind, number> = { direct: 0, cross: 0, far: 0 }
+const goalsByKind: Record<Kind, number> = { direct: 0, cross: 0, far: 0 }
+// por faixa de distância: chutes DIRETOS batidos e gols diretos
 const byBand = bands.map((b) => ({ ...b, shots: 0, goals: 0 }))
-let directShots = 0
+let directShots = 0 // cobranças em que o batedor mandou DIRETO ao gol
+let directGoals = 0 // dessas, quantas viraram GOL direto (crédito do cobrador)
 let reachedMouth = 0
 // subconjunto CENTRAL (|lateral| < 9 m) — a zona clássica de tiro livre direto
 let cShots = 0
@@ -184,46 +158,42 @@ for (let i = 0; i < N; i++) {
   const lateral = (rng() - 0.5) * 2 * 16 // ±16 m do eixo
   const atkGx = FIELD.w
   const spot = vec(atkGx - d, FIELD.cy + lateral)
-  const { outcome, reachedMouth: rm } = runOne(i + 1, spot)
-  tally[outcome]++
+  const r = runOne(i + 1, spot)
+  kinds[r.kind]++
+  if (r.outcome === 'goal') goalsByKind[r.kind]++
 
-  if (outcome !== 'launch') {
+  if (r.shotDirect) {
     directShots++
-    if (rm) reachedMouth++
+    if (r.reachedMouth) reachedMouth++
+    if (r.scoredByTaker) directGoals++
     const band = byBand.find((b) => d >= b.lo && d < b.hi)
     if (band) {
       band.shots++
-      if (outcome === 'goal') band.goals++
+      if (r.scoredByTaker) band.goals++
     }
     if (Math.abs(lateral) < 9) {
       cShots++
-      if (outcome === 'goal') cGoals++
+      if (r.scoredByTaker) cGoals++
     }
   }
 }
 
-const pct = (n: number) => ((n / N) * 100).toFixed(1) + '%'
-const pctShots = (n: number) => (directShots ? ((n / directShots) * 100).toFixed(1) + '%' : '—')
+const pct = (n: number, d: number) => (d ? ((n / d) * 100).toFixed(1) + '%' : '—')
 
 console.log(`\n=== Tiros livres: ${N} | cobrador: ${MODE} | posições 16–34 m, ±16 m ===\n`)
-console.log('Desfecho de TODAS as batidas:')
-console.log(`  ⚽ gol DIRETO ......... ${tally.goal}  (${pct(tally.goal)})`)
-console.log(`  🧤 defendido .......... ${tally.saved}  (${pct(tally.saved)})`)
-console.log(`  🧱 na barreira ........ ${tally.blocked}  (${pct(tally.blocked)})`)
-console.log(`  ↗️  fora / raspando .... ${tally.offTarget}  (${pct(tally.offTarget)})`)
-console.log(`  ♻️  sobra/rebote ....... ${tally.rebound}  (${pct(tally.rebound)})`)
-console.log(`  🎯 lançou (não bateu) . ${tally.launch}  (${pct(tally.launch)})`)
-console.log(`  ⏳ não resolveu ....... ${tally.unresolved}  (${pct(tally.unresolved)})`)
+console.log('TIPO de cobrança conforme o LOCAL da falta (Lei 13):')
+console.log(`  🎯 chute DIRETO ....... ${kinds.direct}  (${pct(kinds.direct, N)})  → ${goalsByKind.direct} gols`)
+console.log(`  🪁 CRUZAMENTO na área . ${kinds.cross}  (${pct(kinds.cross, N)})  → ${goalsByKind.cross} gols (cabeça/finalização)`)
+console.log(`  🔁 recomposição ....... ${kinds.far}  (${pct(kinds.far, N)})  → ${goalsByKind.far} gols`)
 
-console.log(`\nEntre as ${directShots} batidas DIRETAS:`)
-console.log(`  conversão de gol direto: ${tally.goal}/${directShots} = ${pctShots(tally.goal)}`)
-console.log(`  chegaram na boca do gol: ${reachedMouth}/${directShots} = ${pctShots(reachedMouth)}  (resto = abafado/bloqueado antes)`)
+console.log(`\nCHUTE DIRETO — ${directShots} batidas ao gol:`)
+console.log(`  conversão de gol direto: ${directGoals}/${directShots} = ${pct(directGoals, directShots)}`)
+console.log(`  chegaram na boca do gol: ${reachedMouth}/${directShots} = ${pct(reachedMouth, directShots)}  (resto = na barreira/pra fora)`)
 console.log(`\n⭐ CENTRAL (|lat|<9 m) — zona clássica de tiro livre direto:`)
-console.log(`  conversão: ${cGoals}/${cShots} = ${cShots ? ((cGoals / cShots) * 100).toFixed(1) + '%' : '—'}`)
+console.log(`  conversão: ${cGoals}/${cShots} = ${pct(cGoals, cShots)}`)
 
-console.log('\nConversão por distância (só chutes diretos):')
+console.log('\nConversão do chute direto por distância:')
 for (const b of byBand) {
-  const r = b.shots ? ((b.goals / b.shots) * 100).toFixed(1) + '%' : '—'
-  console.log(`  ${b.label}:  ${b.goals}/${b.shots}  (${r})`)
+  console.log(`  ${b.label}:  ${b.goals}/${b.shots}  (${pct(b.goals, b.shots)})`)
 }
 console.log('')
