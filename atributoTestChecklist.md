@@ -107,6 +107,16 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
 - [x] ✅ **Invariantes / robustez** — `tools/invariantes.ts`: 0% NaN/Infinity, 0% escapa do campo, 0% energia
   fora dos limites, 0% deadlock, todas terminam em 96 min. **Física/estado SÓLIDOS** — os problemas são de
   balanceamento/IA, não de motor quebrado.
+- [x] ✅ **Valor de mercado (economia)** — `tools/valor-idade.ts`: valor cresce forte com overall (OVR 60→90 = 9×:
+  R$0.7M→6.6M) e cai com a idade após 24 (OVR 80: 24a R$3.8M → 33a R$1.3M). Realista ✅. Menor: curva stepwise
+  (patamares + quedas bruscas nas trocas de faixa etária), não suave.
+- [x] ✅ **Mercado de transferências** — `tools/mercado.ts`: dá pra evoluir comprando. **72% dos jogadores à venda
+  são upgrade** sobre o nível da divisão (OVR até +12 acima), e o **preço escala forte** (OVR 60→R$0.7M, 70→1.7M,
+  80→3.3M, 90→5.2M). Bem-desenhado ✅. Nota menor: 72% upgrades é generoso (reforça a "carreira fácil" do #-3).
+- [x] ✅ **teamStrength (agregação)** — `src/game/strength.ts`: média do MELHOR XI (melhor GK + 10 melhores de
+  linha). Estruturalmente sólido (não pune banco fraco). ⚠️ herda o #-4 (escolhe XI por `overallOf`, então não
+  escala arquétipo mal-avaliado e é inflado pelo GK); `bestEleven` sem restrição de formação (benigno pois
+  elencos são balanceados por posição). Sem bug próprio.
 - [x] ✅ **Determinismo (replay)** — `tools/determinismo.ts`: mesma seed → MESMO placar (12-14 nas 2 vezes);
   seeds diferentes → jogos diferentes. PRNG (mulberry32) reprodutível ✅ — replays/debug viáveis.
 - [x] ✅ **Distribuição do GK** — `tools/gk-distribuicao.ts`: **72.5%** das reposições chegam a um companheiro
@@ -114,12 +124,32 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
 - [x] ✅ **Distância de chute/gol** — `tools/distancia-chute.ts`: **86% dos gols de dentro da área** (real ~85%),
   só 1% dos chutes de 25m+ e 0% de gol de longe. Seleção de chute por distância BEM calibrada — a conversão alta
   (#1) NÃO é golaço irreal, é o GK fraco nas finalizações de área.
+- [x] ✅ **Sensibilidade do quick-sim à força** — `tools/quicksim-forca.ts`: `quickResult` responde BEM (gap 0→53%,
+  5→72%, 10→88%, 20→94%, 30→97%) — até deterministico demais. O problema da tabela NÃO é ele (ver #-2). + spread de
+  força intra-divisão medido: amplitude só **1.5 pt** (clubes quase iguais) — a verdadeira causa da tabela aleatória.
+- [x] ⚠️ **Tiro livre direto** — `tools/freekick-sim.ts` (do usuário): conversão direta **2.7%** (central 3.1%),
+  real ~5-8%. Levemente baixo, mas FK raro é ok. Causa: só **20% dos chutes chegam ao gol** (resto na barreira/
+  abafado) — a colocação não vence a barreira o bastante. Baixa prioridade.
 - [x] ✅ **Pênaltis** — `tools/penaltis.ts`: frequência **0.1/jogo** (raro, plausível). Cobrança ISOLADA (fiel:
   chute no canto de 11m, GK centrado): **craque converte 74%** (real ~75-78% ✅), vs GK top 63%. ⚠️ cobrador
   **médio só 37%** (real ~65%) — baixo, pois depende da precisão (finishing) e o motor não dá a "vantagem do
   batedor" (GK reage como num chute normal). Fraqueza menor; elite está perfeito.
-- [x] ℹ️ **Impedimento** — o motor NÃO apita offside; é só posicional (corridas limitadas na linha do último
-  zagueiro via `offsideLineFwd`+`offsideSlack`). Previne pela posição, não pune — design intencional, sem bug.
+- [x] ✅ **Impedimento (Lei 11) — AGORA APITADO** — além do posicional (corridas limitadas na linha do penúltimo
+  zagueiro via `offsideLineFwd`+`offsideSlack`), o motor marca offside: no instante do passe em jogo, os atacantes
+  além da linha (+`OFFSIDE.margin`), além da bola e no campo de ataque ficam pendentes (`offsidePend`); se um deles
+  toca a bola primeiro → tiro livre indireto p/ a defesa (`callOffside`). Isento na 1ª entrega de bola parada
+  (`fromRestart`). Calibrado p/ **~0.25 impedimentos/jogo no clockRate 24** (raro, enviesado a NÃO marcar lance
+  apertado); restart sempre p/ o adversário correto, 0 NaN em 80 partidas.
+- [x] ✅ **DOGSO (Lei 12) — negar chance clara de gol** — `isClearChance` (`engine.ts`): falta no atacante que
+  conduzia rumo ao gol, dentro de `DOGSO.maxDist` (34 m), com o faltoso como ÚLTIMO obstáculo (nenhum defensor de
+  linha na rota `DOGSO.lane`) → **vermelho direto** fora da área; **amarelo** no pênalti (dupla punição reduzida).
+  Calibrado raro: **0.12 vermelhos-DOGSO/jogo** (de 0.18 vermelhos totais no clockRate 24, real ~0.25) — não
+  estoura a contagem de vermelhos. 100/100 partidas completas, 0 NaN.
+- [x] ✅ **Mão na bola (Lei 12)** — `handballOffence`+hook em `ballPlayerCollisions` (`engine.ts`): a bola FORTE
+  (`HANDBALL.minSpeed` 9 m/s) batendo no corpo de um jogador de linha pode ser marcada mão (`HANDBALL.chance` 0.02,
+  ×2 com a bola alta) → **pênalti** na própria área, **tiro livre direto** fora. Raro: **~0.15 marcações/jogo** (a
+  maioria tiros livres) e **~0.017 pênaltis de mão/jogo** no clockRate 40, 120/120 partidas completas, 0 NaN. GK
+  isento dentro da própria área; o último tocador é blindado (não marca mão no próprio chute).
 - [x] 🚨 **Elencos REAIS (Brasil×Argentina, clockRate real)** — `tools/elenco-real.ts`: **84% dos jogos 0×0**,
   0.16 gols/jogo, 0.7 chutes/jogo. A compressão do clockRate esvazia a partida. **Achado #0** (ver abaixo).
 - [x] ✅ **Dados dos elencos** — `tools/elenco-dados.ts`: **5/5 testes de coerência posicional passam** (FWD+rápido
@@ -127,6 +157,12 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
   jogadores: spread AUMENTOU (dribbling 36–99, passing 42–97, pace 50–97). **Dados NÃO são a causa do 0×0.**
 - [x] ✅ **Equilíbrio do confronto** — `tools/equilibrio.ts`: após a diversidade, Brasil×Argentina segue
   competitivo — Brasil V **57%** / D 43%, posse **51%**, chutes 57×54. A edição dos elencos NÃO quebrou o balanço.
+- [x] ⚠️ **Margem de vitória (competitividade)** — `tools/margem.ts`: **37% dos jogos são goleada (4+ gols)**
+  vs real ~8%; só 13% de empate (real ~25%). Jogos pouco competitivos — sintoma do scoring inflado (#0/#1,
+  10.57 gols/jogo aqui). Cai junto quando o placar for calibrado.
+- [x] ⚠️ **Momentum (1º gol → resultado)** — `tools/primeiro-gol.ts`: quem marca primeiro vence só **53%**
+  (real ~70%) e **perde 27%** (real ~10%). Vantagem mal protegida, jogo vai-e-vem demais — sintoma da alta
+  variância (#0) + turnover (#8). Cai junto quando o placar/posse forem corrigidos.
 - [x] ⚠️ **Força → resultado (zebra/carreira)** — `tools/forca-resultado.ts`: melhor time vence mais (gap 0→56%,
   5→63%, 10→94%), com zebra em gaps pequenos ✅. MAS **determinístico demais a partir do gap 15 (100%, 0 zebra)**
   e saldos absurdos (+24 a +34). E **0% de empates** (clockRate=2 = jogo de 8+ gols). Cai junto com o #0: placar
@@ -213,6 +249,32 @@ Todos os 39 expressos como **"quanto % deu certo"** (exato = fórmula do motor; 
 
 Ordem aproximada de impacto:
 
+-2. **🏆 TABELA DA LIGA QUASE ALEATÓRIA — causa LOCALIZADA** (`tabela-liga.ts` + `quicksim-forca.ts`). Em 200
+   temporadas: mais forte é campeão só **11%** (real ~40-55%), termina em **7.2º**, Spearman força↔posição **0.27**
+   (real ~0.7), campeão com **67 pts** (real ~85). **NÃO é o quickResult** — ele responde MUITO à força (gap 10 →
+   88% vitória, gap 20 → 94%). A causa real: **`generateClub` gera clubes quase IGUAIS dentro da divisão** —
+   Série A tem amplitude de força de só **1.5 ponto** (78.3–79.7, desvio 0.4)! Todo jogo é gap ~0 → moeda jogada
+   → tabela aleatória. **Lever EXATO: `generate.ts:96` (`generateSquad`)** — todo clube usa `DIVISION_LEVEL[division]`
+   igual; a única variação é ruído por jogador (`gauss*5`) que se anula na média (18 jogadores) → desvio só 0.4.
+   Confirmado em TODAS as divisões (amplitude 1.2–1.6, variância toda ENTRE divisões, nada DENTRO). Fix: somar
+   um **offset de força por CLUBE** (ex.: tier ±8) → amplitude ~16 (campeão acima do rebaixado). *Montar elenco vira título.*
+-1. **🚨🎯 "POUCOS GOLS NA SÉRIE D" CONFIRMADO** (`tools/gols-divisao.ts` vs `gols-divisao-motor.ts`) — a
+   discrepância raiz da CARREIRA. **Quick-sim (Poisson, que popula a TABELA): 2.7 gols/jogo em TODAS as divisões**
+   ✅ (D=2.71). **Motor físico (que o jogador ASSISTE): A=0.90 / B=0.65 / C=0.50 / D=0.38** ❌. Dois mundos:
+   tabela realista, jogo assistido quase 0×0. Série D é a pior porque time fraco (força 57) cria menos chances
+   (1.3 chutes vs 2.7 da A) e o `clockRate=40` da carreira comprime ainda mais. **Fix = #0** (baixar clockRate
+   do motor + GK), e o efeito é mais forte nas divisões baixas. *É o que o usuário sente jogando.*
+-4. **📊 `overallOf` mis-avalia arquétipos** (`src/game/overall.ts`) — estruturalmente ok (pesos por posição),
+   mas: **GKs super-avaliados cross-position** (Alisson 97/Dibu 96 = top-2 geral, acima do Messi 90 — `gkRating`
+   em escala mais alta); **lateral-ala punido** (Wendell **46**! pace 82/cruza 78, mas pesos DEF só veem
+   desarme/marcação); **volante subvalorizado** (Casemiro 76, desarme/força 90); **ponta-drible subvalorizada**
+   (Vini 82 < Endrick 85, finishing pesa 0.26). Distorce `teamStrength`/valor/escalação. Lever: normalizar escala
+   GK vs linha + sub-perfis (lateral ofensivo, DM, ponta) nos `WEIGHTS`.
+-3. **📈 Evolução de jogador desbalanceada (carreira fácil)** (`tools/evolucao.ts`) — `agePlayers`+núcleo. Joia
+   (18/60 OVR): num RIVAL sobe só **+6** (66 aos 24) e ESTAGNA; no SEU clube dispara pra **78 aos 24 (+18)** e
+   segue até **91**. Assimetria (seu núcleo +2/ano vs rival +0) = seu time BOLA-DE-NEVE, mundo estagna → carreira
+   fácil (selftest zera em ~3 temporadas). Também: prime (25-29) é **flat** pros rivais (sem pico real). Levers:
+   `career.ts:189` (crescimento jovem p/ TODOS ~+2-3, pico no prime) e `career.ts:400` (núcleo +2 é generoso demais).
 0. **🚨 84% DOS JOGOS 0×0 + conversão alta — ACOPLADOS** (`tools/elenco-real.ts` + `tools/clockrate-sweep.ts`).
    Varredura de clockRate (elencos reais) — gols/jogo · chutes/jogo · conversão · %0×0:
    | clockRate | gols | chutes | conv | 0×0 |
@@ -248,12 +310,13 @@ Ordem aproximada de impacto:
    NÃO é viés de coordenada. Causa provável: **desempate por ordem de iteração** (casa = ids 0-99, varridos
    primeiro → ganha empates exatos em `nearestOpponent`/`ballCandidate`/duelos) e/ou pontapé inicial.
    Lever: desempatar buscas de bola de forma neutra (distância estrita já ajuda; revisar `<` vs `<=`).
-8. **🎯 Acerto de passe baixo → jogo PICADO** (`tools/passes.ts` + `tools/posse-sequencia.ts`) — **55% de passe
-   completo** (real ~80%), sistêmico. Consequência: **1.88 toques por posse** (real ~3-4), **42% das posses
-   morrem em 1 toque**, só 5% chegam a 4+ passes → jogo turnover-heavy, sem construção. Conecta com #5 (sem posse
-   longa, a bola não flui até as pontas; o #9 pega as sobras e chuta). Levers: `passSpread` (estreitar), facilidade
-   de interceptação (`markPull`/`chaseLead`), `miscontrol` na recepção.
-8. **🐛 Bug de stats LOCALIZADO** (`tools/statbug.ts`) — `goals/shotsOnTarget = 1.18` no desigual ❌.
+8. **🎯 Acerto de passe baixo → jogo PICADO + posse não premia técnica** (`tools/passes.ts` + `posse-sequencia.ts`
+   + `posse-tecnica.ts`) — **55% de passe completo** (real ~80%), sistêmico. Consequência: **1.88 toques por posse**
+   (real ~3-4), **42% das posses morrem em 1 toque**. E a técnica controla pouco a bola: time técnico 85 vs tosco 40
+   (gap de 45!) dá só **55% de posse** (real ~65-70%) e **64% de passe** (elite devia ~85%). A posse vira **turnover
+   aleatório**, não habilidade. Conecta com #5 (sem posse longa, a bola não chega às pontas). Levers: `passSpread`
+   (estreitar), interceptação (`markPull`/`chaseLead`), `miscontrol` na recepção.
+9. **🐛 Bug de stats LOCALIZADO** (`tools/statbug.ts`) — `goals/shotsOnTarget = 1.18` no desigual ❌.
    Atribuição OK (**100% dos gols têm autor=marcador correto**). O furo: `shotsOnTarget++` (`engine.ts:833`)
    só conta quando o **GK enfrenta** o chute como candidato; gol passando por GK **batido/fora de posição**
    é contado na linha (`engine.ts:1112/1115`) **sem** incrementar `shotsOnTarget`. Fix: creditar o chute

@@ -16,16 +16,19 @@ import {
   CELEBRATION,
   COLLIDE,
   CONTROL,
+  DOGSO,
   DRIBBLE,
   DUEL,
   FIELD,
   FREEKICK,
   GK,
   GOAL,
+  HANDBALL,
   HEAD,
   KICKOFF,
   MATCH,
   MOVE,
+  OFFSIDE,
   PEN,
   PHYS,
   RESTART,
@@ -133,6 +136,23 @@ const addEvent = (
   if (s.events.length > 60) s.events.shift()
 }
 
+/**
+ * Anuncia um lance: registra o evento no feed E dispara a FAIXA central sobre o
+ * campo (banner), para que o jogador ENTENDA na hora o que aconteceu — uma falta,
+ * um pênalti, o intervalo. O `id` cresce sempre para a UI reanimar a faixa mesmo
+ * em dois lances iguais em sequência. `title` é a palavra em destaque na faixa.
+ */
+const announce = (
+  s: MatchState,
+  type: EventType,
+  team: TeamId | null,
+  title: string,
+  text: string,
+) => {
+  addEvent(s, type, team, text)
+  s.banner = { id: (s.banner?.id ?? 0) + 1, type, team, title, text }
+}
+
 /** Cria uma partida nova: Brasil ataca para a direita no 1º tempo. */
 export const createMatch = (rosters?: Rosters): MatchState => {
   const s: MatchState = {
@@ -163,6 +183,10 @@ export const createMatch = (rosters?: Rosters): MatchState => {
     wallIds: [],
     fkShotTimer: 0,
     penalty: false,
+    fromRestart: false,
+    offsidePend: null,
+    indirectFK: false,
+    indirectTakerId: null,
     stoppage: 0,
     lastShooterId: null,
     lastShotDist: 0,
@@ -176,6 +200,7 @@ export const createMatch = (rosters?: Rosters): MatchState => {
     firstKickoff: 'home',
     stats: { home: emptyStats(), away: emptyStats() },
     celebration: null,
+    banner: null,
     events: [],
     // seed variando por partida (variedade), mas determinístico DENTRO da partida
     rngState: seedRng(Date.now()),
@@ -247,6 +272,10 @@ const kickoff = (s: MatchState, kicking: TeamId) => {
   s.outOfPlay = 0 // qualquer saída de bola pendente é cancelada pelo recomeço
   s.pendingGoalLineX = null
   s.lastPasserId = null // recomeço zera a cadeia de assistência
+  s.fromRestart = true // a saída de bola não gera impedimento na 1ª entrega
+  s.offsidePend = null
+  s.indirectFK = false
+  s.indirectTakerId = null
 }
 
 const clampPos = (p: Player) => {
@@ -470,7 +499,7 @@ const gkChargeFoul = (s: MatchState, gk: Player) => {
   s.possession = gk.team
   s.restartTeam = gk.team
   att.stun = GK.chargeStun
-  addEvent(s, 'foul', att.team, `Carga em ${gk.name} — falta da defesa!`)
+  announce(s, 'foul', att.team, 'FALTA', `Carga em ${gk.name} — falta da defesa!`)
 }
 
 /** Tenta o desarme do conduto; resolve roubada, falta e cartão. */
@@ -543,7 +572,7 @@ const tryTackle = (s: MatchState) => {
  * limpa qualquer referência pendente a ele, para não quebrar buscas por id.
  * O goleiro não é expulso neste modelo (sem reservas para substituí-lo).
  */
-const sendOff = (s: MatchState, p: Player, reason: string) => {
+const sendOff = (s: MatchState, p: Player, reason: string): 'VERMELHO' => {
   s.stats[p.team].reds++
   addStoppage(s, STOPPAGE.perCard)
   addEvent(s, 'card', p.team, `🟥 ${p.name} (${TEAMS[p.team].name}) — EXPULSO (${reason})`)
@@ -552,22 +581,68 @@ const sendOff = (s: MatchState, p: Player, reason: string) => {
   if (s.lastPasserId === p.id) s.lastPasserId = null
   if (s.lastShooterId === p.id) s.lastShooterId = null
   s.players = s.players.filter((q) => q.id !== p.id)
+  return 'VERMELHO'
 }
 
-/** Decide e aplica o cartão de uma falta: amarelo, 2º amarelo ou vermelho direto. */
-const applyCard = (s: MatchState, def: Player, penalty: boolean) => {
+/** Mostra o AMARELO ao infrator (fonte única do registro do cartão amarelo). */
+const giveYellow = (s: MatchState, def: Player): 'AMARELO' => {
+  def.yellow = true
+  s.stats[def.team].yellows++
+  addStoppage(s, STOPPAGE.perCard)
+  addEvent(s, 'card', def.team, `🟨 ${def.name} (${TEAMS[def.team].name}) — amarelo`)
+  return 'AMARELO'
+}
+
+/**
+ * A falta NEGOU uma CHANCE CLARA de gol (DOGSO, Lei 12)? O atacante conduzia rumo
+ * ao gol, perto o bastante (DOGSO.maxDist), no campo de ataque, e o faltoso era o
+ * ÚLTIMO obstáculo — nenhum outro defensor de LINHA entre a bola e o gol na rota
+ * (sobrava só o goleiro). Critério estreito de propósito: DOGSO é raro.
+ */
+const isClearChance = (s: MatchState, carrier: Player, def: Player): boolean => {
+  if (carrier.role === 'GK') return false
+  const fwd = s.attackDir[carrier.team]
+  if ((carrier.pos.x - FIELD.cx) * fwd <= 0) return false // ainda no próprio campo
+  const goalC = vec(attackingGoalX(fwd), FIELD.cy)
+  if (dist(carrier.pos, goalC) > DOGSO.maxDist) return false
+  for (const o of s.players) {
+    if (o.team === carrier.team || o.role === 'GK' || o.id === def.id) continue
+    if ((o.pos.x - carrier.pos.x) * fwd <= 0) continue // não está goal-side da bola
+    if (Math.abs(o.pos.y - carrier.pos.y) <= DOGSO.lane) return false // cobre a rota
+  }
+  return true
+}
+
+/**
+ * Decide e aplica o cartão de uma falta: amarelo, 2º amarelo ou vermelho direto.
+ * `dogso` força o cartão por NEGAR CHANCE CLARA de gol (vermelho fora da área;
+ * amarelo no pênalti, pela dupla punição). Devolve o título da FAIXA do cartão
+ * ('AMARELO'/'VERMELHO') ou null se não houve cartão.
+ */
+const applyCard = (
+  s: MatchState,
+  def: Player,
+  penalty: boolean,
+  dogso: boolean,
+): 'AMARELO' | 'VERMELHO' | null => {
+  // DOGSO: cartão CERTO. Fora da área e jogador de linha → VERMELHO direto (falta
+  // profissional). Dentro da área (pênalti) ou goleiro → AMARELO; o 2º amarelo
+  // ainda expulsa o jogador de linha.
+  if (dogso) {
+    if (!penalty && def.role !== 'GK')
+      return sendOff(s, def, 'negar chance clara de gol')
+    if (def.role !== 'GK' && def.yellow) return sendOff(s, def, '2º amarelo')
+    return giveYellow(s, def)
+  }
   const prob =
     CARD.base + nrm(def.attrs.aggression) * CARD.aggressionWeight + (penalty ? CARD.penaltyBonus : 0)
-  if (rand(s) >= prob) return
+  if (rand(s) >= prob) return null
   // o goleiro recebe no máximo amarelo (não há reserva para expulsá-lo). A
   // AGRESSIVIDADE pesa no vermelho DIRETO: o jogador nervoso entra mais feio.
   const redFrac = CARD.straightRedFrac * (1 + nrm(def.attrs.aggression) * CARD.straightRedAggr)
   if (def.role !== 'GK' && (rand(s) < redFrac || def.yellow))
     return sendOff(s, def, def.yellow ? '2º amarelo' : 'falta grave')
-  def.yellow = true
-  s.stats[def.team].yellows++
-  addStoppage(s, STOPPAGE.perCard)
-  addEvent(s, 'card', def.team, `🟨 ${def.name} (${TEAMS[def.team].name}) — amarelo`)
+  return giveYellow(s, def)
 }
 
 /**
@@ -581,13 +656,19 @@ const commitFoul = (s: MatchState, def: Player, carrier: Player) => {
 
   const ownGoalX = defendingGoalX(s.attackDir[def.team])
   const penalty = inPenaltyArea(carrier.pos, ownGoalX)
-  applyCard(s, def, penalty)
+  // DOGSO: a falta interrompeu uma chance clara de gol (último homem)? Decide o
+  // cartão certo (vermelho fora da área; amarelo no pênalti).
+  const dogso = isClearChance(s, carrier, def)
+  // o cartão registra seu próprio evento no feed e devolve o título da faixa; a
+  // faixa do LANCE é composta abaixo com prioridade (pênalti > cartão > falta).
+  const card = applyCard(s, def, penalty, dogso)
 
   // vantagem: falta no campo de ataque e o atacante seguiria com a bola
   const fwd = s.attackDir[carrier.team]
   const inAttackingHalf = (carrier.pos.x - FIELD.cx) * fwd > 0
   if (!penalty && inAttackingHalf && rand(s) < ADVANTAGE.chance) {
-    addEvent(s, 'foul', def.team, `Falta de ${def.name} — vantagem, ${TEAMS[carrier.team].name} segue!`)
+    announce(s, 'foul', def.team, card ?? 'VANTAGEM',
+      `Falta de ${def.name} — vantagem, ${TEAMS[carrier.team].name} segue!`)
     return // jogo continua: o atacante mantém a posse, sem bola parada
   }
 
@@ -597,9 +678,10 @@ const commitFoul = (s: MatchState, def: Player, carrier: Player) => {
   s.controllerId = null
   s.holdTime = 0
 
+  // pênalti é sempre a manchete; senão, o cartão (se houve) prevalece sobre "FALTA"
   if (penalty) return penaltyKick(s, carrier.team, ownGoalX)
 
-  addEvent(s, 'foul', def.team, `Falta de ${def.name} sobre ${carrier.name}`)
+  announce(s, 'foul', def.team, card ?? 'FALTA', `Falta de ${def.name} sobre ${carrier.name}`)
   setupFreeKick(s, carrier.team, { ...carrier.pos })
 }
 
@@ -614,7 +696,7 @@ const placedKickRating = (p: Player): number =>
  * forma sozinha em `desiredTarget`. O que se FAZ com a bola (chute direto,
  * lançamento na área ou recomposição) é decidido em `decideAction`.
  */
-const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2) => {
+const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2, indirect = false) => {
   const atkGx = attackingGoalX(s.attackDir[team])
   const dGoal = dist(spot, vec(atkGx, FIELD.cy))
   const central = Math.abs(spot.y - FIELD.cy) < FREEKICK.shootCone
@@ -635,6 +717,12 @@ const setupFreeKick = (s: MatchState, team: TeamId, spot: Vec2) => {
   // falta perigosa congela mais: a barreira se forma e o ataque carrega a área
   placeDeadBall(s, taker, team, dangerous ? FREEKICK.deadballDanger : FREEKICK.deadball)
   s.freeKick = true
+  // INDIRETO (impedimento, recuo pego com a mão): registra o cobrador; o gol só
+  // vale após um 2º toque (ver `resolveBounds`), e a IA toca curto (freeKickAction).
+  if (indirect) {
+    s.indirectFK = true
+    s.indirectTakerId = taker.id
+  }
 
   // BARREIRA (fonte única): nas faltas perigosas, fixa quais defensores formam o
   // paredão — os mais próximos do 1º pau na linha bola→gol. A IA os posta em leque
@@ -704,7 +792,38 @@ const penaltyKick = (s: MatchState, team: TeamId, goalX: number) => {
   s.tackleCooldown = PEN.deadball + DUEL.cooldown
   s.deadball = PEN.deadball
   s.lastPasserId = null
-  addEvent(s, 'penalty', team, `Pênalti para ${TEAMS[team].name}! ${taker.name} vai cobrar`)
+  s.fromRestart = true // a cobrança em si não gera impedimento
+  s.offsidePend = null
+  s.indirectFK = false
+  s.indirectTakerId = null
+  announce(s, 'penalty', team, 'PÊNALTI!', `Pênalti para ${TEAMS[team].name}! ${taker.name} vai cobrar`)
+}
+
+/**
+ * A bola chegou ao goleiro vinda de um RECUO ilegal? — isto é, de um passe
+ * DELIBERADO com o pé de um COMPANHEIRO (Lei 12). Cabeçadas, cortes e alívios
+ * zeram `lastPasserId` (não são "passe"), então um passador que ainda é
+ * companheiro do goleiro — e não ele mesmo — caracteriza o recuo de pé. Nesse
+ * caso o goleiro joga com os PÉS em vez de usar as mãos.
+ */
+const isBackPass = (s: MatchState, gk: Player): boolean =>
+  s.lastPasserId !== null &&
+  s.lastPasserId !== gk.id &&
+  byId(s, s.lastPasserId).team === gk.team
+
+/**
+ * RECUO PEGO COM A MÃO (Lei 12): o goleiro afobado errou e segurou o recuo de pé
+ * do companheiro — infração punida com TIRO LIVRE INDIRETO para o adversário no
+ * local (dentro da área). Não vale gol batido direto (ver `indirectFK`).
+ */
+const backPassHandle = (s: MatchState, gk: Player) => {
+  const opp = other(gk.team)
+  s.controllerId = null
+  s.holdTime = 0
+  addStoppage(s, STOPPAGE.perFoul)
+  announce(s, 'foul', gk.team, 'INDIRETO',
+    `${gk.name} pega o recuo com a mão — tiro livre indireto para ${TEAMS[opp].name}!`)
+  setupFreeKick(s, opp, { ...s.ball.pos }, true)
 }
 
 /** Goleiro garante a posse e abre janela protegida para distribuir (item 43). */
@@ -784,11 +903,70 @@ const saveProbability = (s: MatchState, gk: Player, speed: number): number => {
   return clamp(p, GK.saveFloor, GK.saveCap)
 }
 
+/** Forwardness (X projetado no sentido de ataque) do PENÚLTIMO defensor adversário
+ *  — a linha do impedimento. Ignora o goleiro (em geral o último), tomando o
+ *  último jogador de LINHA como referência (aproximação padrão do 2º-último). */
+const offsideLineFwd = (s: MatchState, attackTeam: TeamId, fwd: number): number => {
+  let max = -Infinity
+  for (const o of s.players) {
+    if (o.team === attackTeam || o.role === 'GK') continue
+    const f = o.pos.x * fwd
+    if (f > max) max = f
+  }
+  return max === -Infinity ? FIELD.w : max
+}
+
+/**
+ * Registra o IMPEDIMENTO pendente (Lei 11) no instante em que `passer` toca a
+ * bola em jogo: marca os companheiros que estão em posição de impedimento —
+ * à frente da LINHA do penúltimo defensor (+margem), à frente da BOLA e no campo
+ * de ATAQUE. Se algum deles for o primeiro a se envolver, o lance é apitado.
+ */
+const markOffside = (s: MatchState, passer: Player) => {
+  const t = passer.team
+  const fwd = s.attackDir[t]
+  const line = offsideLineFwd(s, t, fwd) + OFFSIDE.margin
+  const ballFwd = s.ball.pos.x * fwd
+  const ids: number[] = []
+  for (const p of s.players) {
+    if (p.team !== t || p.role === 'GK' || p.id === passer.id) continue
+    const pf = p.pos.x * fwd
+    // à frente do penúltimo defensor E da bola E no campo de ataque (passou o meio)
+    if (pf > line && pf > ballFwd && pf > FIELD.cx) ids.push(p.id)
+  }
+  s.offsidePend = ids.length ? { team: t, ids } : null
+}
+
+/**
+ * Apita o IMPEDIMENTO: o atacante habilitou-se ao se envolver com a bola estando
+ * impedido. Tiro livre INDIRETO para o adversário no ponto do impedimento — aqui,
+ * por simplicidade, modelado como uma bola parada comum (o restart fica longe do
+ * gol do beneficiado, logo não vira chute direto fácil).
+ */
+const callOffside = (s: MatchState, offender: Player) => {
+  s.offsidePend = null
+  s.controllerId = null
+  s.holdTime = 0
+  addStoppage(s, STOPPAGE.perFoul)
+  announce(s, 'foul', offender.team, 'IMPEDIMENTO',
+    `Impedimento de ${offender.name}!`)
+  setupFreeKick(s, other(offender.team), { ...offender.pos }, true) // indireto (Lei 11)
+}
+
 /** Goleiro tenta a defesa; demais jogadores apenas dominam a bola solta. */
 const tryGainLoose = (s: MatchState) => {
   if (s.controllerId !== null || s.kickCooldown > 0 || s.deadball > 0) return
   const cand = ballCandidate(s)
   if (!cand) return
+
+  // IMPEDIMENTO (Lei 11): há atacantes marcados em posição de impedimento e a bola
+  // chega a um deles primeiro → apita; se quem alcança não estava impedido (ou é
+  // adversário), a fase de impedimento se encerra sem punição.
+  if (s.offsidePend) {
+    if (s.offsidePend.team === cand.team && s.offsidePend.ids.includes(cand.id))
+      return callOffside(s, cand)
+    s.offsidePend = null
+  }
 
   if (cand.role === 'GK') {
     // o goleiro só usa as MÃOS dentro da própria grande área (Lei 12); fora dela
@@ -825,6 +1003,17 @@ const tryGainLoose = (s: MatchState) => {
     // bola RASTEIRA lenta (recuo/passe atrás): domina sem disputa, mas pode dar
     // "frango" (item 24). Bola no ar não cai aqui — vira abafamento ou defesa.
     if (!airborne && speed <= GK.controlSpeed) {
+      // REGRA DO RECUO (Lei 12): um passe DELIBERADO com o PÉ de um companheiro NÃO
+      // pode ser pego com a mão. O goleiro então o domina com os PÉS, como um
+      // jogador de linha — é o que se faz na vida real para não cometer a infração
+      // (e ainda pode errar o controle sob pressão, ver miscontrol em controlLoose).
+      // Sob PRESSÃO, porém, o afobado pode ERRAR e pegar com a mão → indireto na área.
+      if (isBackPass(s, cand)) {
+        const pressed = nearestOpponentToPoint(s, cand.team, cand.pos, AI.pressureDist) !== null
+        if (pressed && rand(s) < GK.backPassPanic * (1 - nrm(a.composure)))
+          return backPassHandle(s, cand)
+        return controlLoose(s, cand)
+      }
       const fumble = (1 - nrm(a.handling)) * (1 - nrm(a.composure)) * GK.fumbleScale
       if (rand(s) < fumble) return spillBall(s, cand)
       return gkGrab(s, cand)
@@ -984,6 +1173,26 @@ const controlLoose = (s: MatchState, cand: Player) => {
 }
 
 /**
+ * MÃO NA BOLA (Lei 12): a bola forte bateu no corpo/braço de um jogador de linha.
+ * Na PRÓPRIA grande área do infrator → PÊNALTI para o adversário; em qualquer
+ * outro ponto → tiro livre direto no local. O `penaltyKick`/`setupFreeKick` cuidam
+ * do posicionamento e do congelamento da jogada.
+ */
+const handballOffence = (s: MatchState, p: Player) => {
+  const opp = other(p.team)
+  const goalX = defendingGoalX(s.attackDir[p.team])
+  s.controllerId = null
+  s.holdTime = 0
+  if (inPenaltyArea(p.pos, goalX)) {
+    addEvent(s, 'foul', p.team, `Mão na bola de ${p.name} na área!`)
+    return penaltyKick(s, opp, goalX) // anuncia a faixa de PÊNALTI
+  }
+  addStoppage(s, STOPPAGE.perFoul)
+  announce(s, 'foul', p.team, 'MÃO NA BOLA', `Mão na bola de ${p.name} — tiro livre`)
+  setupFreeKick(s, opp, { ...p.pos })
+}
+
+/**
  * Colisão da bola SOLTA e rápida com o CORPO dos jogadores de linha: bloqueios,
  * desvios e interceptações físicas (a bola deixa de atravessar os jogadores).
  * Cada contato é uma disputa: o jogador AMORTECE (mata a bola nos pés) ou apenas
@@ -1010,6 +1219,15 @@ const ballPlayerCollisions = (s: MatchState) => {
     const nv = scale(off, 1 / d)
     const vn = b.vel.x * nv.x + b.vel.y * nv.y
     if (vn >= 0) continue // bola já se afastando do corpo
+
+    // MÃO NA BOLA (Lei 12): a bola FORTE bate no corpo e pode ser marcada como mão
+    // — pênalti na própria área, tiro livre fora. Rara e mais provável com a bola
+    // ALTA (braços mais no caminho). Roda ANTES de resolver o ricochete/amortecimento.
+    const hbLoft = b.z > AIR.groundBand ? HANDBALL.loftMul : 1
+    if (speed >= HANDBALL.minSpeed && rand(s) < HANDBALL.chance * hbLoft) {
+      s.lastTouchId = p.id
+      return handballOffence(s, p)
+    }
 
     b.pos = add(p.pos, scale(nv, rr)) // tira a bola de dentro do corpo
     s.lastTouchId = p.id
@@ -1083,9 +1301,27 @@ const advanceBallFlight = (s: MatchState, dt: number) => {
 const teamDefending = (s: MatchState, goalX: number): TeamId =>
   defendingGoalX(s.attackDir.home) === goalX ? 'home' : 'away'
 
+/**
+ * Bola entrou no gol em `gx`: marca o gol NORMALMENTE, a menos que seja um TIRO
+ * LIVRE INDIRETO batido DIRETO (sem 2º toque) — nesse caso o gol é ANULADO (Lei 13)
+ * e vira tiro de meta do time que defende.
+ */
+const scoreOrDisallow = (s: MatchState, gx: number) => {
+  if (s.indirectFK) {
+    addEvent(s, 'goalkick', teamDefending(s, gx),
+      'Gol anulado: tiro livre indireto não vale batido direto')
+    return goalKick(s, teamDefending(s, gx), gx)
+  }
+  return scoreGoal(s, teamDefending(s, gx), gx)
+}
+
 /** Trata gols, quique na trave e os reinícios de bola fora (fundo e lateral). */
 const resolveBounds = (s: MatchState) => {
   const b = s.ball
+  // TIRO LIVRE INDIRETO já JOGADO por um 2º jogador (o toque não foi do cobrador)
+  // → vira "direto": o gol volta a valer. Enquanto só o cobrador tocou, segue indireto.
+  if (s.indirectFK && s.lastTouchId !== null && s.lastTouchId !== s.indirectTakerId)
+    s.indirectFK = false
   // dentro da BOCA do gol e ABAIXO do travessão — bola por cima (z alto) não é gol
   const inMouth = b.pos.y > GOAL.top && b.pos.y < GOAL.bottom && b.z < GOAL.height
 
@@ -1109,10 +1345,10 @@ const resolveBounds = (s: MatchState) => {
   // linha de fundo: gol é imediato; fora do gol a bola SEGUE rolando um instante
   // (beginGoalLineOut) antes do tiro de meta/escanteio — o jogador vê que saiu.
   if (b.pos.x <= 0) {
-    if (inMouth) return scoreGoal(s, teamDefending(s, 0), 0)
+    if (inMouth) return scoreOrDisallow(s, 0)
     return beginGoalLineOut(s, 0)
   } else if (b.pos.x >= FIELD.w) {
-    if (inMouth) return scoreGoal(s, teamDefending(s, FIELD.w), FIELD.w)
+    if (inMouth) return scoreOrDisallow(s, FIELD.w)
     return beginGoalLineOut(s, FIELD.w)
   }
 
@@ -1186,6 +1422,10 @@ const placeDeadBall = (
   s.outOfPlay = 0 // a bola foi recolocada: encerra qualquer espera de saída
   s.pendingGoalLineX = null
   s.goalKickWait = 0 // zera a espera por área limpa (só o tiro de meta a consome)
+  s.fromRestart = true // a 1ª entrega desta cobrança é isenta de impedimento (Lei 11)
+  s.offsidePend = null // qualquer impedimento pendente morre com a bola parada
+  s.indirectFK = false // por padrão a cobrança é direta; setupFreeKick marca indireto
+  s.indirectTakerId = null
 }
 
 /**
@@ -1261,7 +1501,7 @@ const cornerKick = (s: MatchState, team: TeamId, gx: number) => {
   placeTaker(taker, corner)
   placeDeadBall(s, taker, team, RESTART.cornerDeadball)
   s.stats[team].corners++
-  addEvent(s, 'corner', team, `Escanteio para ${TEAMS[team].name}`)
+  announce(s, 'corner', team, 'ESCANTEIO', `Escanteio para ${TEAMS[team].name}`)
 }
 
 /**
@@ -1407,9 +1647,11 @@ const switchSides = (s: MatchState) => {
   s.attackDir.home = (s.attackDir.home * -1) as Dir
   s.attackDir.away = (s.attackDir.away * -1) as Dir
   s.stoppage = 0 // acréscimos são por tempo — zera para o 2º tempo
-  addEvent(s, 'half', null, '⏱️ Fim do 1º tempo — troca de lados')
-  kickoff(s, other(s.firstKickoff))
   addEvent(s, 'kickoff', other(s.firstKickoff), 'Começa o 2º tempo!')
+  kickoff(s, other(s.firstKickoff))
+  // a faixa fica por ÚLTIMO para não ser sobrescrita pelo evento do reinício — é
+  // o "meio-tempo" que o jogador precisa ver com clareza (troca de lados).
+  announce(s, 'half', null, 'INTERVALO', '⏱️ Fim do 1º tempo — troca de lados')
 }
 
 /** Avança a simulação em um passo fixo `dt` (segundos reais). */
@@ -1587,8 +1829,13 @@ export const step = (s: MatchState, dt: number): void => {
       } else {
         // passe: o conduto atual passa a ser o candidato a assistência
         s.lastPasserId = carrier.id
+        // IMPEDIMENTO (Lei 11): marca quem ficou impedido NO INSTANTE do passe —
+        // exceto na PRIMEIRA entrega de uma bola parada (lateral/escanteio/tiro de
+        // meta/tiro livre/saída não geram impedimento direto).
+        if (!s.fromRestart) markOffside(s, carrier)
       }
       s.controllerId = null
+      s.fromRestart = false // a bola foi jogada: a isenção da bola parada se esgota
       s.goalKick = false // bola chutada/distribuída: o tiro de meta acabou
       s.throwIn = false // bola lançada: o arremesso lateral acabou
       s.freeKick = false // bola batida/lançada: o tiro livre acabou

@@ -21,7 +21,10 @@ const poisson = (lambda: number, rng: Rng): number => {
  */
 const expectedGoals = (attack: number, defense: number): number => {
   const diff = (attack - defense) / 12
-  return Math.max(0.18, 1.35 + diff)
+  // base calibrada p/ ~3 gols/jogo na média (a vantagem de casa se cancela na soma
+  // dos dois times, então o total médio ≈ 2 × base). Igual em todas as divisões,
+  // pois só a DIFERENÇA de força pesa (o nível absoluto se anula).
+  return Math.max(0.18, 1.5 + diff)
 }
 
 export interface QuickResult {

@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { canvasSize } from './render/renderer'
 import { TEAMS } from './sim/teams'
-import type { Celebration, TeamStats } from './sim/types'
+import type { Banner, Celebration, TeamStats } from './sim/types'
 import { useMatchLoop, type Hud } from './useMatchLoop'
 import { primeAudio } from './sfx/crowd'
 import PlayerStats from './PlayerStats'
@@ -80,6 +80,63 @@ function GoalOverlay({ c }: { c: Celebration }) {
         </div>
         <div className="goal-min">{c.minute}&apos;</div>
       </div>
+    </div>
+  )
+}
+
+/** Ícone (emoji) da faixa conforme o lance — reforça visualmente o evento. */
+const bannerIcon = (b: Banner): string => {
+  if (b.title === 'VERMELHO') return '🟥'
+  if (b.title === 'AMARELO') return '🟨'
+  switch (b.type) {
+    case 'penalty':
+      return '🎯'
+    case 'corner':
+      return '🚩'
+    case 'half':
+      return '⏱️'
+    case 'kickoff':
+      return '⚽'
+    default:
+      return '🟢' // falta / vantagem: apito do árbitro
+  }
+}
+
+/**
+ * FAIXA de anúncio do lance (falta, pênalti, cartão, escanteio, intervalo): entra
+ * deslizando sobre o campo por alguns segundos e some sozinha. Existe para deixar
+ * CLARO o que acabou de acontecer — sem ela, o jogo só "parava" sem explicar. O
+ * gol tem seu próprio overlay (GoalOverlay), então não passa por aqui.
+ */
+function EventBanner({ b }: { b: Banner | null }) {
+  const [shown, setShown] = useState<Banner | null>(null)
+  useEffect(() => {
+    if (!b) return
+    setShown(b)
+    // some sozinha; só apaga se ainda for ESTA faixa (outra pode tê-la substituído)
+    const t = window.setTimeout(
+      () => setShown((cur) => (cur?.id === b.id ? null : cur)),
+      2600,
+    )
+    return () => window.clearTimeout(t)
+  }, [b?.id])
+
+  if (!shown) return null
+  const info = shown.team ? TEAMS[shown.team] : null
+  return (
+    <div
+      key={shown.id}
+      className={`event-banner ev-${shown.type} ti-${shown.title === 'VERMELHO' ? 'red' : shown.title === 'AMARELO' ? 'yellow' : 'plain'}`}
+      style={info ? ({ '--accent': info.shirt } as React.CSSProperties) : undefined}
+    >
+      <span className="eb-icon">{bannerIcon(shown)}</span>
+      <span className="eb-body">
+        <span className="eb-title">
+          {info && <img className="eb-flag" src={info.flag} alt={info.name} />}
+          {shown.title}
+        </span>
+        <span className="eb-text">{shown.text}</span>
+      </span>
     </div>
   )
 }
@@ -221,6 +278,7 @@ export default function App() {
             height={size.height}
             className="pitch"
           />
+          {!hud.celebration && <EventBanner b={hud.banner} />}
           {hud.celebration && <GoalOverlay c={hud.celebration} />}
           {hud.status === 'over' && (
             <FullTime hud={hud} h={h} a={a} posHome={posHome} onRestart={reset} />

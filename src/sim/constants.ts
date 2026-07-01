@@ -189,6 +189,21 @@ export const FREEKICK = {
 }
 
 /**
+ * Impedimento (Lei 11): um atacante está em posição de impedimento se, NO INSTANTE
+ * em que um companheiro joga a bola, estiver mais perto da linha de fundo
+ * adversária do que a bola E do que o penúltimo defensor, no campo de ataque. O
+ * lance só é apitado se esse atacante SE ENVOLVER (for o primeiro a tocar a bola).
+ */
+export const OFFSIDE = {
+  /** margem (m) ALÉM da linha do penúltimo defensor para caracterizar impedimento.
+   *  Pela Lei 11 não há margem — é uma linha; aqui um meio-corpo de tolerância
+   *  absorve a amostragem discreta e enviesa LEVEMENTE a NÃO marcar lances
+   *  apertados (erra a menos). A disciplina das corridas da IA (cap em
+   *  linha+offsideSlack) é o que mantém o impedimento naturalmente raro. */
+  margin: 0.5,
+}
+
+/**
  * Cartões e expulsões (Lei 12): a falta pode gerar amarelo; o 2º amarelo e a
  * falta grave (vermelho direto) expulsam o jogador, e o time segue com um a menos.
  */
@@ -203,6 +218,36 @@ export const CARD = {
   straightRedFrac: 0.12,
   /** quanto a agressividade do infrator aumenta a chance de vermelho direto */
   straightRedAggr: 0.8,
+}
+
+/**
+ * DOGSO (Lei 12) — negar uma chance CLARA de gol com uma falta: o atacante
+ * conduzia rumo ao gol, perto o bastante, e o faltoso era o ÚLTIMO obstáculo (só
+ * o goleiro restava). Fora da área → VERMELHO direto (falta profissional); dentro
+ * da área → AMARELO (dupla punição reduzida: o pênalti já castiga o lance).
+ */
+export const DOGSO = {
+  /** distância (m) ao gol até onde a falta ainda nega uma chance clara */
+  maxDist: 34,
+  /** meia-largura (m) da rota bola→gol: um defensor nessa faixa "cobre" o lance
+   *  (então não era chance clara) — estreita de propósito, p/ o DOGSO ser raro */
+  lane: 6.5,
+}
+
+/**
+ * MÃO NA BOLA (Lei 12): a bola batendo forte no corpo de um jogador de linha pode
+ * ser marcada como mão. Na PRÓPRIA grande área do infrator → pênalti; em qualquer
+ * outro ponto → tiro livre direto para o adversário. Raro de propósito (não há
+ * modelo de braço): só bola forte, e mais provável com a bola ALTA. Não se aplica
+ * ao goleiro dentro da própria área (ali ele pode usar as mãos).
+ */
+export const HANDBALL = {
+  /** chance-base de um contato bola-corpo FORTE ser marcado como mão */
+  chance: 0.02,
+  /** só a partir desta velocidade da bola (m/s) — um toque leve não é mão */
+  minSpeed: 9,
+  /** multiplicador da chance quando a bola está ALTA (braços mais no caminho) */
+  loftMul: 2,
 }
 
 /**
@@ -282,6 +327,14 @@ export const SHOT = {
   /** penalidade de mira por bater FORTE (potência) — quem martela sem técnica
    *  abre o chute; technique tempera essa abertura (0=potência não custa mira) */
   powerSpread: 0.16,
+  /** DISPERSÃO da finalização (fonte única, tunável): piso de erro + parcela que
+   *  cresce quanto PIOR o finalizador, e o quanto technique/consistency ainda
+   *  amplificam o erro. Quanto menores, mais chutes saem enquadrados (mais gols)
+   *  e menos o talento separa bons de ruins (a Série D também faz gol). */
+  spreadFloor: 0.04,
+  spreadScale: 0.3,
+  spreadTech: 0.3,
+  spreadCons: 0.24,
 }
 
 /**
@@ -290,15 +343,16 @@ export const SHOT = {
  * (aerialPower) decidem se sai enquadrada; composure firma a têmpora.
  */
 export const HEAD = {
-  /** chance-base de uma cabeçada a gol bem dada */
-  base: 0.18,
+  /** chance-base de uma cabeçada a gol bem dada (subida p/ ~3 gols/jogo: cruzamento
+   *  e escanteio passam a render mais cabeçadas enquadradas) */
+  base: 0.36,
   /** peso da competência aérea (jumping/heading) na chance */
   skill: 0.5,
   /** peso da frieza (composure) na chance */
   composure: 0.12,
   /** piso/teto da chance de cabecear no rumo do gol */
   floor: 0.1,
-  cap: 0.72,
+  cap: 0.9,
   /** velocidade-base da cabeçada (m/s) — bem abaixo do chute de pé */
   speedBase: 11,
   /** parcela de velocidade vinda da impulsão/força aérea (m/s) */
@@ -322,12 +376,16 @@ export const AI = {
   markTight: 0.32,
   /** amplitude (m) da tendência posicional individual (variação humana) */
   humanJitter: 1.1,
-  /** distância-base ao gol para tentar o chute (m); ajustada pela finalização */
-  shootRange: 15,
+  /** distância-base ao gol para tentar o chute (m); ajustada pela finalização.
+   *  Ampliada (era 15) p/ os times FINALIZAREM mais — sem isso, em nível baixo mal
+   *  se chegava ao chute e a Série D quase não fazia gol. */
+  shootRange: 30,
   /** offTheBall: quanto a corrida sobe rumo à linha de impedimento (0..1) */
   offBallRunDepth: 0.35,
-  /** desvio lateral máximo (m) em relação ao centro do gol p/ arriscar o chute */
-  shootCone: 15,
+  /** desvio lateral máximo (m) em relação ao centro do gol p/ arriscar o chute.
+   *  Ampliado (era 15) junto com shootRange p/ gerar mais finalizações (o ângulo
+   *  ruim é penalizado na precisão do chute, então a conversão se auto-regula). */
+  shootCone: 30,
   /** recuo (m) do poste ao mirar o canto no chute (margem de segurança) */
   shotCornerInset: 1.0,
   /** tempo máximo segurando a bola antes de decidir passar (s) */
@@ -475,9 +533,13 @@ export const GK = {
   controlSpeed: 12,
 
   // --- probabilidade de defesa (itens 13-24) ---
-  saveBase: 0.3,
+  /** REDUZIDOS (era 0.30/0.45) p/ elevar a conversão a ~3 gols/jogo. O saveSkill
+   *  baixo também ACHATA a diferença entre goleiros: sem isso, a conversão da elite
+   *  disparava e a Série D não convertia (goleiros fracos não seguravam o suficiente
+   *  para compensar a finalização fraca). */
+  saveBase: 0.07,
   /** peso da habilidade combinada do GK (reflexo/posicion./agilidade) */
-  saveSkill: 0.45,
+  saveSkill: 0.09,
   /** velocidade de chute sem penalidade (m/s) — abaixo disso é colocado, fácil de defender */
   saveSpeedFree: 20,
   saveSpeedPen: 0.012,
@@ -492,7 +554,7 @@ export const GK = {
   saveClosePen: 0.18,
   saveFatiguePen: 0.08,
   saveFloor: 0.12,
-  saveCap: 0.94,
+  saveCap: 0.8,
 
   // --- segurar vs. espalmar / erros (itens 17-24) ---
   holdBase: 0.55,
@@ -505,8 +567,9 @@ export const GK = {
   spillSpeed: 13,
   /** cooldown curto após espalmar, para a segunda bola (s) */
   spillCooldown: 0.25,
-  /** chance (× reflexos) de tocar e dar rebote ao falhar a defesa */
-  secondChance: 0.33,
+  /** chance (× reflexos) de tocar e dar rebote ao falhar a defesa (reduzida de 0.33:
+   *  menos "segunda defesa" no rebote, ajudando a conversão a chegar em ~3 gols/jogo) */
+  secondChance: 0.1,
   /** chance-base de "frango" em bola fácil (× falhas de handling/composure) */
   fumbleScale: 0.05,
   /** janela protegida para distribuir após defender (s) */
@@ -552,6 +615,10 @@ export const GK = {
   /** chance-base de marcar falta na carga (× agressividade do atacante) */
   chargeFoulChance: 0.5,
   chargeStun: 0.6,
+  /** RECUO (Lei 12): sob pressão, chance de o goleiro AFOBADO pegar o recuo de pé
+   *  com a MÃO (× falta de composure) → tiro livre indireto na área. Raro: o normal
+   *  é ele jogar com os pés; isto é o erro ocasional que vira lance de perigo. */
+  backPassPanic: 0.08,
 
   // --- organização da linha (item 8) ---
   /** o quanto a comunicação do GK fecha o bloco de defesa (0..1) */
@@ -631,8 +698,10 @@ export const COLLIDE = {
 
 /** Domínio da bola solta / disputa aérea (firstTouch, jumping, heading). */
 export const CONTROL = {
-  /** escala da chance de errar o primeiro toque na bola solta */
-  miscontrolScale: 0.22,
+  /** escala da chance de errar o primeiro toque na bola solta. REDUZIDA (era 0.22):
+   *  menos erros de domínio → os times (sobretudo os fracos) SUSTENTAM mais posse e
+   *  chegam mais vezes ao chute, o que é essencial p/ a Série D fazer gols. */
+  miscontrolScale: 0.06,
   /** velocidade (m/s) acima da qual a bola é "alta/forte" e exige disputa aérea */
   loftSpeed: 18,
   /** alcance extra (m) ganho na bola alta conforme a competência aérea */
@@ -672,9 +741,11 @@ export const DUEL = {
   /** intervalo mínimo entre tentativas de desarme (s) */
   cooldown: 0.5,
   /** drible 1v1 (passar pelo marcador antes do duelo): base, peso do confronto
-   *  drible/agilidade × leitura do defensor, e teto (defesa ainda funciona) */
-  beatBase: 0.18,
-  beatSwing: 0.75,
+   *  drible/agilidade × leitura do defensor, e teto (defesa ainda funciona).
+   *  beatBase↑ e beatSwing↓ (eram 0.18/0.75) tornam o drible MENOS dependente do
+   *  talento: o ataque progride mais, gerando mais chances (ajuda a Série D). */
+  beatBase: 0.24,
+  beatSwing: 0.55,
   beatCap: 0.66,
   /** PASSOU: o defensor mordeu e ficou desequilibrado por um átimo (s) — é o que
    *  abre o espaço de verdade; o bom equilíbrio (balance) encurta essa recuperação */
@@ -686,10 +757,12 @@ export const DUEL = {
   beatBurstTime: 0.8,
   /** folga (× cooldown) antes do próximo bote depois de um drible bem-sucedido */
   beatTackleGap: 3,
-  /** chance-base de desarme bem-sucedido por tentativa */
-  baseWin: 0.5,
-  /** peso da diferença de poder (desarme×condução) na chance de roubada */
-  duelSwing: 1.1,
+  /** chance-base de desarme bem-sucedido por tentativa (reduzida de 0.5) */
+  baseWin: 0.42,
+  /** peso da diferença de poder (desarme×condução) na chance de roubada. REDUZIDO
+   *  (era 1.1): o desarme depende MENOS do talento, então o ataque mantém mais a
+   *  posse e chega mais ao gol — parte de trazer a Série D a ~3 gols/jogo. */
+  duelSwing: 0.7,
   /** vantagem física do ombro a ombro na dividida (diferença de strength, ±1) */
   strengthEdge: 0.22,
   /** o quanto a bravura torna o bote mais comprometido (ganha mais ao acertar) */

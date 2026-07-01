@@ -125,7 +125,12 @@ export const shotSpread = (a: Attrs, far: number, pressured: boolean, power = 0)
   const flairTrim = nrm(a.flair) * (1 - far) * 0.1
   // bater FORTE custa mira; a TÉCNICA tempera (craque martela e acerta o ângulo)
   const powerCost = power * (1 - nrm(a.technique)) * SHOT.powerSpread
-  return Math.max(0.02, spread(acc, a, 0.55, 0.06) - flairTrim + calm + powerCost)
+  // dispersão própria do chute (tunável em SHOT) — NÃO usa o spread() de passe,
+  // para poder calibrar a conversão de gol sem mexer no passe/cruzamento.
+  const tech = 1 - nrm(a.technique) * SHOT.spreadTech
+  const cons = 1 + (1 - nrm(a.consistency)) * SHOT.spreadCons
+  const base = (SHOT.spreadFloor + (1 - acc) * SHOT.spreadScale) * tech * cons
+  return Math.max(0.02, base - flairTrim + calm + powerCost)
 }
 
 /** Alcance de chute (m): finalizadores e chutadores de longe arriscam de mais longe. */

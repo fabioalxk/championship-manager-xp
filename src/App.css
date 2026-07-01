@@ -442,6 +442,113 @@
   }
 }
 
+/* ---------- faixa de anúncio do lance (falta/pênalti/cartão/intervalo) ---------- */
+.event-banner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 14%;
+  margin: 0 auto;
+  width: max-content;
+  max-width: 90%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px 10px 14px;
+  border-radius: 12px;
+  pointer-events: none;
+  color: #fff;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(8, 13, 26, 0.96));
+  /* a barra colorida à esquerda usa a cor do time do lance (--accent) */
+  border-left: 6px solid var(--accent, #94a3b8);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  /* entra deslizando do alto, segura e sai (casa com os 2.6s do timeout no React) */
+  animation:
+    ebIn 0.34s cubic-bezier(0.2, 1.3, 0.4, 1) both,
+    ebOut 0.4s ease-in 2.2s both;
+}
+.eb-icon {
+  font-size: clamp(26px, 4.5vw, 40px);
+  line-height: 1;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.5));
+  animation: ebPop 0.4s cubic-bezier(0.2, 1.6, 0.35, 1) both;
+}
+.eb-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.eb-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(20px, 3.6vw, 30px);
+  font-weight: 900;
+  letter-spacing: 1px;
+  line-height: 1;
+}
+.eb-flag {
+  width: 24px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.eb-text {
+  font-size: clamp(11px, 1.9vw, 14px);
+  font-weight: 600;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* pênalti puxa o olhar: borda e título avermelhados/quentes */
+.event-banner.ev-penalty {
+  border-left-color: #f97316;
+}
+.event-banner.ev-penalty .eb-title {
+  color: #fdba74;
+}
+/* cartões pintam a faixa com a cor do cartão (sobrepõe a cor do time) */
+.event-banner.ti-yellow {
+  border-left-color: #facc15;
+}
+.event-banner.ti-yellow .eb-title {
+  color: #fde047;
+}
+.event-banner.ti-red {
+  border-left-color: #ef4444;
+}
+.event-banner.ti-red .eb-title {
+  color: #fca5a5;
+}
+@keyframes ebIn {
+  from { transform: translateY(-22px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes ebOut {
+  from { opacity: 1; }
+  to { transform: translateY(-10px); opacity: 0; }
+}
+@keyframes ebPop {
+  0% { transform: scale(0) rotate(-14deg); opacity: 0; }
+  60% { transform: scale(1.18) rotate(4deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .event-banner {
+    animation: ebFade 0.3s ease both, ebOut 0.3s ease 2.3s both;
+  }
+  .eb-icon {
+    animation: none;
+  }
+}
+@keyframes ebFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ---------- tela de fim de jogo (resumo sobre o campo) ---------- */
 .ft-overlay {
   position: absolute;

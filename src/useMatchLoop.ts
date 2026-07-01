@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
+  Banner,
   Celebration,
   MatchEvent,
   MatchState,
@@ -31,6 +32,8 @@ export interface Hud {
   stats: { home: TeamStats; away: TeamStats }
   /** comemoração de gol em andamento (alimenta o banner central) */
   celebration: Celebration | null
+  /** faixa do último lance (falta, pênalti, intervalo...) — anúncio efêmero */
+  banner: Banner | null
 }
 
 const snapshot = (m: MatchState): Hud => ({
@@ -43,6 +46,7 @@ const snapshot = (m: MatchState): Hud => ({
   events: m.events.slice(-8).reverse(),
   stats: { home: m.stats.home, away: m.stats.away },
   celebration: m.celebration,
+  banner: m.banner,
 })
 
 /**
@@ -83,6 +87,7 @@ export const useMatchLoop = (
     let lastEvents = -1
     let lastStatus: MatchStatus | '' = ''
     let lastCeleb = false
+    let lastBanner = -1
 
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame)
@@ -116,18 +121,21 @@ export const useMatchLoop = (
       // HUD atualiza ao mudar o segundo, surgir evento, acabar ou (des)comemorar
       const sec = Math.floor(m.time / MATCH.clockRate)
       const celeb = m.celebration !== null
+      const bannerId = m.banner?.id ?? -1
       // dispara o rugido da torcida exatamente no início da comemoração
       if (celeb && !lastCeleb) goalRoar()
       if (
         sec !== lastSec ||
         m.events.length !== lastEvents ||
         m.status !== lastStatus ||
-        celeb !== lastCeleb
+        celeb !== lastCeleb ||
+        bannerId !== lastBanner
       ) {
         lastSec = sec
         lastEvents = m.events.length
         lastStatus = m.status
         lastCeleb = celeb
+        lastBanner = bannerId
         setHud(snapshot(m))
       }
     }

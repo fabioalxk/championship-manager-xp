@@ -5,12 +5,18 @@ import { makeName, FIRST_COUNT, LAST_COUNT } from './names'
 import { overallOf } from './overall'
 import type { Rng } from './random'
 
-/** Nível médio de overall esperado por divisão (A é a elite). */
+/**
+ * Nível médio de overall esperado por divisão (A é a elite). A faixa é COMPRIMIDA
+ * de propósito (76→62 em vez de 78→56): no motor físico os gols escalam com o
+ * talento ABSOLUTO, então elencos muito fracos (Série D antiga, 56) mal criavam
+ * chances. Aproximar as divisões mantém ~3 gols/jogo em TODAS elas sem deixar a
+ * elite exagerar — preservando ainda um gradiente perceptível de qualidade.
+ */
 export const DIVISION_LEVEL: Record<Division, number> = {
-  A: 78,
-  B: 70,
-  C: 63,
-  D: 56,
+  A: 76,
+  B: 71,
+  C: 67,
+  D: 64,
 }
 
 /**

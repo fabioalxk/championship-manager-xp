@@ -194,6 +194,25 @@ export interface Celebration {
   t: number
 }
 
+/**
+ * Faixa de anúncio (banner) que surge sobre o campo a cada LANCE relevante —
+ * falta, pênalti, cartão, escanteio, intervalo, 2º tempo — para deixar CLARO o
+ * que acabou de acontecer, no mesmo espírito da comemoração de gol (mais leve).
+ * É efêmera: a UI a exibe por alguns segundos e some sozinha; o `id` crescente
+ * faz a faixa REapareer/reanimar mesmo em dois lances iguais seguidos.
+ */
+export interface Banner {
+  /** identificador crescente — a UI reanima a faixa quando ele muda */
+  id: number
+  type: EventType
+  /** time relacionado ao lance (cor/escudo da faixa); null = neutro (intervalo) */
+  team: TeamId | null
+  /** palavra-faixa em destaque, ex.: "FALTA", "PÊNALTI!", "INTERVALO" */
+  title: string
+  /** descrição do lance (reaproveita o texto do evento do feed) */
+  text: string
+}
+
 export interface MatchState {
   players: Player[]
   ball: Ball
@@ -233,6 +252,22 @@ export interface MatchState {
   fkShotTimer: number
   /** cobrança de pênalti em andamento → todos aguardam fora da área até o chute */
   penalty: boolean
+  /** a jogada atual nasce de uma BOLA PARADA (lateral, escanteio, tiro de meta,
+   *  tiro livre, saída) → a PRIMEIRA bola entregue por essa cobrança NÃO está
+   *  sujeita a impedimento (Lei 11). Consumido no primeiro toque/entrega. */
+  fromRestart: boolean
+  /** IMPEDIMENTO pendente (Lei 11): atacantes que estavam em posição de
+   *  impedimento NO INSTANTE do último passe em jogo. Se um deles for o primeiro
+   *  a se envolver com a bola, o lance é apitado; se um companheiro habilitado
+   *  (ou um adversário) toca antes, a fase se encerra sem impedimento. */
+  offsidePend: { team: TeamId; ids: number[] } | null
+  /** o tiro livre atual é INDIRETO (impedimento, recuo pego com a mão): NÃO vale
+   *  gol batido DIRETO — a bola precisa tocar um 2º jogador. Some quando um 2º
+   *  jogador toca a bola (vira "direto") ou no próximo recomeço. */
+  indirectFK: boolean
+  /** id do cobrador do tiro livre indireto — enquanto ele for o único a ter tocado
+   *  a bola, um gol não vale (Lei 13). */
+  indirectTakerId: number | null
   /** acréscimos do tempo atual (s de jogo), somados por gol/falta/cartão; zera a cada tempo */
   stoppage: number
   /** último jogador a finalizar (para narrar o gol) */
@@ -255,6 +290,8 @@ export interface MatchState {
   stats: Record<TeamId, TeamStats>
   /** comemoração em andamento (congela a jogada); null = jogo normal */
   celebration: Celebration | null
+  /** faixa de anúncio do último lance relevante (falta, pênalti, intervalo...) */
+  banner: Banner | null
   events: MatchEvent[]
   /** estado do PRNG determinístico (mulberry32) — replays e debug consistentes */
   rngState: number

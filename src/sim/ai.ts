@@ -585,6 +585,26 @@ const freeKickAction = (s: MatchState, carrier: Player, dir: Dir, fwd: number): 
   const atkGx = attackingGoalX(dir)
   const goalC = vec(atkGx, FIELD.cy)
   const dGoal = dist(carrier.pos, goalC)
+
+  // TIRO LIVRE INDIRETO (Lei 13): NÃO vale gol batido direto → o cobrador TOCA
+  // CURTO para o companheiro mais próximo (que dá a sequência/finaliza), em vez de
+  // bater ao gol. O 2º toque habilita o gol (ver `indirectFK` no engine).
+  if (s.indirectFK) {
+    const mate = teammates(s, carrier.team)
+      .filter((m) => m.id !== carrier.id && m.role !== 'GK' && m.stun <= 0)
+      .sort((a, b) => dist(carrier.pos, a.pos) - dist(carrier.pos, b.pos))[0]
+    const speed = passSpeed(carrier.attrs)
+    if (mate)
+      return {
+        type: 'pass',
+        target: withNoise(s, carrier.pos, passLeadPoint(carrier, mate, speed), passSpread(carrier.attrs, false)),
+        speed,
+        to: mate,
+      }
+    // sem companheiro livre: um toque curto ao lado só para colocar a bola em jogo
+    return { type: 'pass', target: vec(carrier.pos.x + fwd * 3, carrier.pos.y + 4), speed, to: null }
+  }
+
   const central = Math.abs(carrier.pos.y - FIELD.cy) < FREEKICK.shootCone
 
   // 1) CHUTE DIRETO: bola parada estende o alcance (batida sem pressão e firme).

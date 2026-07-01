@@ -129,6 +129,82 @@ const ARGENTINA: Spec[] = [
 
 const ROSTERS: Record<TeamId, Spec[]> = { home: BRASIL, away: ARGENTINA }
 
+// ----------------------------------------------------------------------------
+// CAOS DE ATRIBUTOS — mata a sensação de "todo mundo igual". O elenco real
+// define a ASSINATURA de cada jogador (seus picos); isto radicaliza o RESTO:
+//  1. afasta cada atributo da média do jogador  → arquétipo mais pontiagudo;
+//  2. ruído ± por atributo                       → ninguém é clone do outro;
+//  3. "dons de craque" (spikes)                  → talentos fora da curva;
+//  4. "buracos" (tanks) nos pontos fracos         → terrível em algumas coisas.
+// 100% determinístico (mesmo jogador → mesmos números), preservando replays.
+// ----------------------------------------------------------------------------
+
+/** Intensidade do caos — suba para mais variância/loucura, desça para suavizar. */
+export const CHAOS = {
+  spread: 1.5, //  afasta cada atributo da média do jogador (arquétipo + agudo)
+  jitter: 13, //   ruído ± máximo por atributo (textura)
+  spikes: 2, //    nº de "dons de craque" empurrados ao teto
+  spikeBoost: 24,
+  tanks: 4, //     nº de pontos fracos afundados de vez
+  tankDrop: 34,
+  floor: 5,
+  ceil: 99,
+}
+
+/** Hash determinístico → [0,1): mulberry32 "puro", sem estado. */
+const hash01 = (n: number): number => {
+  let t = (n + 0x6d2b79f5) >>> 0
+  t = Math.imul(t ^ (t >>> 15), t | 1)
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+}
+
+/** Hash FNV-1a de string → semente inteira (combina jogador + atributo). */
+const strSeed = (s: string): number => {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+/** Atributos exclusivos de goleiro: irrelevantes para a média de um jogador de linha. */
+const GK_ONLY: (keyof Attrs)[] = ['goalkeeping', 'handling', 'aerialReach', 'oneOnOne', 'kicking', 'throwing', 'communication']
+/** Núcleo que faz o goleiro DEFENDER — nunca vira "buraco" (senão deixa de ser GK). */
+const GK_CORE: (keyof Attrs)[] = ['goalkeeping', 'reflexes', 'handling']
+
+const clampAttr = (v: number) => Math.max(CHAOS.floor, Math.min(CHAOS.ceil, Math.round(v)))
+
+/** Escolhe os N atributos de menor hash (seleção estável e determinística). */
+const pickN = (keys: (keyof Attrs)[], seed: number, n: number): Set<keyof Attrs> =>
+  new Set([...keys].sort((a, b) => hash01(seed ^ strSeed(a)) - hash01(seed ^ strSeed(b))).slice(0, n))
+
+/** Aplica o caos sobre os atributos já mesclados (base + assinatura do jogador). */
+const chaosAttrs = (attrs: Attrs, role: Role, seed: number): Attrs => {
+  const out = { ...attrs }
+  const keys = Object.keys(out) as (keyof Attrs)[]
+  // a média (pivô do "spread") só conta os atributos que o jogador de fato usa
+  const used = role === 'GK' ? keys : keys.filter((k) => !GK_ONLY.includes(k))
+  const mean = used.reduce((a, k) => a + out[k], 0) / used.length
+
+  // dons saem de qualquer atributo usado; buracos só dos PONTOS FRACOS (< média),
+  // assim a assinatura (o pico que define o jogador) nunca é destruída
+  const spikable = used.filter((k) => !(role === 'GK' && GK_CORE.includes(k)))
+  const tankable = used.filter((k) => out[k] < mean && !(role === 'GK' && GK_CORE.includes(k)))
+  const spikes = pickN(spikable, seed ^ 0x51b3, CHAOS.spikes)
+  const tanks = pickN(tankable, seed ^ 0x7a2c, CHAOS.tanks)
+
+  for (const k of used) {
+    let v = mean + (out[k] - mean) * CHAOS.spread //         1) afasta da média
+    v += (hash01(seed ^ strSeed(k) ^ 0x9e3779b9) - 0.5) * 2 * CHAOS.jitter // 2) ruído
+    if (spikes.has(k)) v += CHAOS.spikeBoost //               3) dom de craque
+    if (tanks.has(k)) v -= CHAOS.tankDrop //                  4) buraco
+    out[k] = clampAttr(v)
+  }
+  return out
+}
+
 export interface SeedPlayer {
   number: number
   name: string
@@ -141,11 +217,12 @@ export interface SeedPlayer {
 export const rosterFor = (team: TeamId): SeedPlayer[] =>
   ROSTERS[team].map((spec, i) => {
     const role = ROLES_433[i]
+    const seed = strSeed(`${team}:${spec.name}:${spec.number}`)
     return {
       number: spec.number,
       name: spec.name,
       role,
-      attrs: { ...baseAttrs(role), ...spec.attrs },
+      attrs: chaosAttrs({ ...baseAttrs(role), ...spec.attrs }, role, seed),
       formationPos: { ...FORMATION_433[i] },
     }
   })
