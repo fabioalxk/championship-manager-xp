@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ALL_CLUBS } from '../game/worldcup'
+import { benchHasUpgrade } from '../game/run'
 import { ClubBadge } from '../ui/ClubBadge'
 import MapView from './MapView'
 import SquadRunView from './SquadRunView'
@@ -46,7 +47,12 @@ export default function RunShell({ api }: { api: RunApi }) {
           <span>Mapa</span>
         </button>
         <button className={`cm-nav-btn ${tab === 'squad' ? 'active' : ''}`} onClick={() => setTab('squad')}>
-          <span className="cm-nav-ico">👕</span>
+          <span className="cm-nav-ico">
+            👕
+            {benchHasUpgrade(state) && (
+              <span className="cm-nav-dot" title="Você tem reservas melhores que titulares" />
+            )}
+          </span>
           <span>Meu Time</span>
         </button>
       </nav>

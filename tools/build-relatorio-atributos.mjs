@@ -50,10 +50,12 @@ const verdict = (d) => {
 const present = ALL_ATTRS.filter((a) => data[a])
 const ranked = [...present].sort((a, b) => Math.abs(data[b].diffMean) - Math.abs(data[a].diffMean))
 
+const trialsUsed = data[present[0]]?.trials ?? '?'
+
 let md = `# Relatório de Experimentos de Isolamento de Atributo
 
 Cada atributo listado em \`atributos.md\` foi testado isoladamente: 11×11, motor
-físico real (\`src/sim/engine.ts\`), 1000 partidas completas por atributo.
+físico real (\`src/sim/engine.ts\`), ${trialsUsed} partidas completas por atributo.
 Todos os jogadores dos dois times começam com **todos os atributos em 50**. Em
 cada partida, o time **Teste** tem o atributo em questão em **100** para os 11
 jogadores; o time **Controle** mantém **tudo em 50** (inclusive esse atributo).
@@ -62,6 +64,15 @@ pontapé inicial. Seeds determinísticas (reprodutível) — ver \`src/game/expe
 
 "Diferença" = gols/partida do Teste − gols/partida do Controle. Teste t pareado,
 95% de confiança (|t| > 1.96 ⇒ significativo).
+
+> **Nota sobre amostra e comparações múltiplas:** ${trialsUsed} partidas/atributo é uma
+> amostra menor (rodada assim de propósito, para ser rápida — a versão com 1000
+> partidas, mais precisa, foi testada para \`pace\` em \`reports/experimento-pace.md\`).
+> Com 39 testes a 95% de confiança, espera-se por puro acaso ~2 "falsos positivos"
+> (p entre 0.01 e 0.05). Resultados com p bem abaixo de 0.001 (firstTouch, pace,
+> dribbling, acceleration) são robustos; os de p entre 0.01–0.05 (flair, reflexes,
+> positioning) valem uma segunda rodada com mais partidas antes de tirar conclusão
+> definitiva.
 
 ## Ranking geral — do maior para o menor impacto em gols
 
@@ -104,7 +115,7 @@ const negative = significant.filter((a) => data[a].diffMean < 0).sort((a, b) => 
 md += `## Conclusão
 
 - **${significant.length}/${present.length} atributos** tiveram impacto estatisticamente significativo (95%) nos gols quando isolados.
-- **${notSignificant.length}/${present.length} atributos** não mostraram efeito detectável nesta metodologia (isolar 1 atributo, 1000 partidas): ${notSignificant.length > 0 ? notSignificant.join(', ') : 'nenhum'}.
+- **${notSignificant.length}/${present.length} atributos** não mostraram efeito detectável nesta metodologia (isolar 1 atributo, ${trialsUsed} partidas): ${notSignificant.length > 0 ? notSignificant.join(', ') : 'nenhum'}.
 
 ### Maior impacto POSITIVO (mais gols)
 ${positive.slice(0, 8).map((a, i) => `${i + 1}. **${a}**: ${data[a].diffMean >= 0 ? '+' : ''}${fmt(data[a].diffMean)} gols/partida`).join('\n')}

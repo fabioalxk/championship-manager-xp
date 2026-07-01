@@ -234,6 +234,20 @@ export const swapStarter = (state: RunState, benchId: number, starterId: number)
   state.startingIds[idx] = benchId
 }
 
+/**
+ * Há algum reserva no banco melhor que o titular mais fraco da mesma posição?
+ * Usado pra acender um aviso ("dá pra melhorar o time") na aba Meu Time.
+ */
+export const benchHasUpgrade = (state: RunState): boolean => {
+  const starters = state.squad.filter((p) => state.startingIds.includes(p.id))
+  const bench = state.squad.filter((p) => !state.startingIds.includes(p.id))
+  return bench.some((b) => {
+    const sameRole = starters.filter((s) => s.role === b.role)
+    const worst = sameRole.length ? sameRole : starters
+    return worst.some((s) => b.overall > s.overall)
+  })
+}
+
 /** Escala automaticamente os 11 melhores do elenco (botão "melhor time" na UI). */
 export const optimizeStartingXI = (state: RunState): void => {
   state.startingIds = bestEleven(state.squad).map((p) => p.id)
