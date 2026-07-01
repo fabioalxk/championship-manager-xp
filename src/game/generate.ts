@@ -62,7 +62,7 @@ const SQUAD_SHAPE: Role[] = [
 ]
 
 /** Valor de mercado (R$) derivado da nota e da idade (pico ~24 anos). */
-const valueOf = (overall: number, age: number): number => {
+export const valueOf = (overall: number, age: number): number => {
   const base = Math.pow(Math.max(0, overall - 40) / 10, 2.4) * 120_000
   const ageMul = age <= 24 ? 1.15 : age <= 28 ? 1 : age <= 31 ? 0.7 : 0.4
   return Math.round((base * ageMul) / 10_000) * 10_000
@@ -93,13 +93,18 @@ export const ensureIdAbove = (min: number): void => {
   if (min >= nextId) nextId = min + 1
 }
 
-/** Gera um jogador para uma posição num nível-alvo, opcionalmente com caos da divisão. */
+/**
+ * Gera um jogador para uma posição num nível-alvo, opcionalmente com caos da
+ * divisão. `name` sobrescreve o nome fictício (usado pelas seleções da Copa,
+ * que têm elenco com nomes REAIS — só o nome; os atributos continuam gerados).
+ */
 export const generatePlayer = (
   role: Role,
   target: number,
   number: number,
   rng: Rng,
   chaos?: ChaosCfg,
+  name?: string,
 ): GenPlayer => {
   const scaled = scaledAttrs(role, target, rng)
   const attrs = chaos ? applyChaos(scaled, role, chaos, rngChaosSource(rng)) : scaled
@@ -107,7 +112,7 @@ export const generatePlayer = (
   const age = rng.int(17, 34)
   return {
     id: freshId(),
-    name: makeName(rng.int(0, FIRST_COUNT - 1), rng.int(0, LAST_COUNT - 1)),
+    name: name ?? makeName(rng.int(0, FIRST_COUNT - 1), rng.int(0, LAST_COUNT - 1)),
     number,
     role,
     age,
@@ -117,10 +122,21 @@ export const generatePlayer = (
   }
 }
 
-/** Gera o elenco completo de um clube no nível da sua divisão (+ boost opcional). */
-export const generateSquad = (division: Division, rng: Rng, boost = 0): GenPlayer[] => {
-  const level = DIVISION_LEVEL[division] + boost
-  const chaos = DIVISION_CHAOS[division]
+/**
+ * Gera um elenco a partir de um "molde" de posições (ordem livre) num nível-alvo,
+ * com números de camisa únicos. Base compartilhada por `generateSquad` (elenco de
+ * divisão) e por qualquer outro modo que precise gerar jogadores em lote (ex.: o
+ * modo roguelike gera o elenco inicial e os adversários do mapa com isto).
+ * `names` (paralelo a `shape`) sobrescreve o nome de cada posição quando presente
+ * — usado pelas seleções da Copa que têm elenco com nomes reais.
+ */
+export const generateSquadShaped = (
+  shape: Role[],
+  level: number,
+  chaos: ChaosCfg,
+  rng: Rng,
+  names?: (string | undefined)[],
+): GenPlayer[] => {
   const used = new Set<number>()
   const pickNumber = (): number => {
     let n = rng.int(1, 39)
@@ -128,10 +144,14 @@ export const generateSquad = (division: Division, rng: Rng, boost = 0): GenPlaye
     used.add(n)
     return n
   }
-  return SQUAD_SHAPE.map((role) =>
-    generatePlayer(role, level + rng.gauss() * 5, pickNumber(), rng, chaos),
+  return shape.map((role, i) =>
+    generatePlayer(role, level + rng.gauss() * 5, pickNumber(), rng, chaos, names?.[i]),
   )
 }
+
+/** Gera o elenco completo de um clube no nível da sua divisão (+ boost opcional). */
+export const generateSquad = (division: Division, rng: Rng, boost = 0): GenPlayer[] =>
+  generateSquadShaped(SQUAD_SHAPE, DIVISION_LEVEL[division] + boost, DIVISION_CHAOS[division], rng)
 
 /**
  * Monta o estado de um clube (identidade real + elenco gerado). `boost` eleva o

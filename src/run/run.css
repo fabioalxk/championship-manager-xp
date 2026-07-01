@@ -1,0 +1,502 @@
+/* ===== Slay of the CM — mapa e telas específicas da corrida roguelike ===== */
+
+/* ---------- Escolha da seleção (tela inicial) ---------- */
+.rq-team-grid {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* ---------- Mapa ---------- */
+.rq-map-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rq-map-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(180deg, var(--cm-panel-2), var(--cm-panel));
+  border: 1px solid var(--cm-line);
+  border-radius: 12px;
+  padding: 11px 18px;
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.rq-map-bar-stage b {
+  color: var(--cm-gold);
+  font-size: 16px;
+}
+.rq-map-bar-coins {
+  color: var(--cm-gold);
+  font-weight: 900;
+  letter-spacing: 0.3px;
+}
+/* moldura com SCROLL VERTICAL: o mapa é bem mais alto que a área visível */
+.rq-map-scroll {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  max-height: 74vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-radius: 18px;
+  border: 1px solid var(--cm-line);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  scrollbar-width: thin;
+  scrollbar-color: var(--cm-line) transparent;
+}
+.rq-map-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.rq-map-scroll::-webkit-scrollbar-thumb {
+  background: var(--cm-line);
+  border-radius: 999px;
+}
+/* conteúdo alto (altura vem inline do componente) — dá espaço vertical de sobra */
+.rq-map {
+  position: relative;
+  width: 100%;
+}
+.rq-map-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  pointer-events: none;
+}
+/* véu: escurece bordas e topo/base p/ os nós e trilhas destacarem do fundo */
+.rq-map-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 50% 42%, transparent 42%, rgba(6, 10, 18, 0.55) 100%),
+    linear-gradient(180deg, rgba(6, 10, 18, 0.5) 0%, transparent 22%, transparent 72%, rgba(6, 10, 18, 0.62) 100%);
+}
+.rq-map-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+/* pontilhado clássico e limpo (traços curtos, sem animação) */
+.rq-line {
+  stroke: rgba(230, 237, 247, 0.3);
+  stroke-width: 0.6;
+  stroke-dasharray: 2 2;
+}
+/* caminho a partir do nó liberado agora, e trilha já percorrida: dourado */
+.rq-line-open,
+.rq-line-done {
+  stroke: var(--cm-gold);
+  stroke-width: 0.9;
+  stroke-dasharray: 2.2 2;
+}
+
+.rq-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 46px;
+  height: 46px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  z-index: 2;
+  transition: transform 0.12s ease;
+}
+/* anel externo decorativo (medalha de 2 tons) */
+.rq-node-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.02) 40%, rgba(0, 0, 0, 0.25));
+}
+.rq-node-badge {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 32%, var(--cm-panel-2), var(--cm-panel));
+  border: 2.5px solid rgba(148, 163, 189, 0.7);
+  overflow: hidden;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
+}
+.rq-node-icon {
+  font-size: 20px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+/* legenda flutuante sob os nós especiais/chefão */
+.rq-node-cap {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cm-text);
+  background: rgba(10, 14, 22, 0.72);
+  border: 1px solid var(--cm-line);
+  padding: 1px 6px;
+  border-radius: 999px;
+  pointer-events: none;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rq-node-cap-boss {
+  border-color: var(--cm-gold);
+  color: var(--cm-gold);
+  font-size: 9.5px;
+  max-width: 120px;
+}
+
+/* ---- temas por tipo de nó ---- */
+.rq-node-gym .rq-node-badge {
+  background: radial-gradient(circle at 50% 30%, #123047, #0b1a27);
+  border-color: rgba(56, 189, 248, 0.85);
+}
+.rq-node-market .rq-node-badge {
+  background: radial-gradient(circle at 50% 30%, #3a2f0f, #241c07);
+  border-color: rgba(251, 191, 36, 0.9);
+}
+.rq-node-boss {
+  width: 66px;
+  height: 66px;
+}
+.rq-node-boss .rq-node-icon {
+  font-size: 30px;
+}
+.rq-node-boss .rq-node-badge {
+  border-color: var(--cm-gold);
+  background: radial-gradient(circle at 50% 30%, #3a1414, #1a0808);
+  box-shadow: 0 0 18px rgba(220, 38, 38, 0.5), 0 4px 12px rgba(0, 0, 0, 0.6);
+}
+.rq-node-boss .rq-node-ring {
+  background: conic-gradient(from 0deg, var(--cm-gold), #dc2626, var(--cm-gold), #dc2626, var(--cm-gold));
+  animation: rq-spin 6s linear infinite;
+}
+@keyframes rq-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- estados (cores sempre normais, sem cinza e sem piscar) ---- */
+.rq-node-available {
+  z-index: 3;
+}
+/* disponível: só um anel dourado estático destacando que dá p/ clicar */
+.rq-node-available .rq-node-badge {
+  border-color: var(--cm-gold);
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.32), 0 4px 12px rgba(0, 0, 0, 0.55);
+}
+.rq-node-available:hover {
+  transform: translate(-50%, -50%) scale(1.12);
+}
+/* concluído: só ganha a borda verde + o ✓; mantém a cor cheia */
+.rq-node-cleared .rq-node-badge {
+  border-color: var(--cm-green);
+}
+/* bloqueado: sem clique, mas cor totalmente normal (nada de cinza/apagado) */
+.rq-node-locked {
+  cursor: default;
+}
+.rq-node-check {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: var(--cm-green);
+  color: #06210f;
+  font-weight: 900;
+  font-size: 12px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--cm-bg);
+  z-index: 4;
+}
+/* ---- ponto de partida (origem dos 3 caminhos) ---- */
+.rq-start-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  z-index: 2;
+}
+.rq-start-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  background: radial-gradient(circle at 50% 32%, var(--cm-panel-2), var(--cm-panel));
+  border: 2.5px solid rgba(148, 163, 189, 0.7);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
+}
+/* enquanto o jogador ainda não andou, o início fica dourado (é o "você está aqui") */
+.rq-start-here .rq-start-badge {
+  border-color: var(--cm-gold);
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.32), 0 4px 10px rgba(0, 0, 0, 0.55);
+}
+.rq-start-cap {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--cm-text);
+  background: rgba(10, 14, 22, 0.72);
+  border: 1px solid var(--cm-line);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.rq-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.rq-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--cm-line);
+  background: var(--cm-panel);
+  color: var(--cm-muted);
+  font-weight: 600;
+}
+.rq-legend-dot {
+  font-size: 13px;
+}
+.rq-legend-gym {
+  border-color: rgba(56, 189, 248, 0.45);
+}
+.rq-legend-market {
+  border-color: rgba(251, 191, 36, 0.45);
+}
+.rq-legend-boss {
+  border-color: rgba(220, 38, 38, 0.5);
+}
+
+/* ---------- Escalação (titulares/banco) ---------- */
+.rq-squad .cm-squad-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.rq-swap-hint {
+  font-size: 12px;
+  color: var(--cm-gold);
+  margin: 0 0 6px;
+}
+.rq-starter,
+.rq-bench {
+  grid-template-columns: 58px 26px 1fr auto 34px !important;
+}
+.rq-tag {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-align: center;
+}
+.rq-tag-starter {
+  background: rgba(34, 197, 94, 0.22);
+  color: #86efac;
+}
+.rq-tag-bench {
+  background: rgba(148, 163, 189, 0.18);
+  color: var(--cm-muted);
+}
+.rq-bench.picked {
+  box-shadow: inset 2px 0 0 var(--cm-gold);
+  background: rgba(251, 191, 36, 0.1);
+}
+
+/* ---------- Cartas de recompensa ---------- */
+.rc-modal {
+  width: 100%;
+  max-width: 720px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--cm-panel);
+  border: 1px solid var(--cm-line);
+  border-radius: 16px;
+  padding: 26px;
+  text-align: center;
+}
+.rc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 8px;
+}
+.rc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--cm-panel-2);
+  border: 1px solid var(--cm-line);
+  border-radius: 14px;
+  padding: 16px 14px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--cm-text);
+  transition: border-color 0.12s, transform 0.08s;
+}
+.rc-card:hover {
+  border-color: var(--cm-gold);
+  transform: translateY(-2px);
+}
+.rc-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.rc-card-role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--cm-muted);
+  font-weight: 700;
+}
+.rc-card-ovr {
+  font-size: 24px;
+  font-weight: 900;
+}
+.rc-card-name {
+  font-weight: 800;
+  font-size: 15px;
+}
+.rc-card-age {
+  font-size: 12px;
+  color: var(--cm-muted);
+  margin-top: -6px;
+}
+.rc-card-attrs {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.rc-attr-good {
+  color: #86efac;
+}
+.rc-attr-bad {
+  color: #fca5a5;
+}
+.rc-pick-btn {
+  margin-top: auto;
+}
+
+/* ---------- Mercado (nó) ---------- */
+.rq-market {
+  max-width: 700px;
+}
+.rq-market-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  text-align: left;
+  margin-bottom: 16px;
+}
+.rq-market-col h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--cm-muted);
+  text-transform: uppercase;
+}
+.rq-market-col .cm-market-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+/* ---------- Academia (nó) ---------- */
+.rq-gym {
+  max-width: 700px;
+}
+.rq-gym-cols {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 14px;
+  text-align: left;
+  margin-bottom: 12px;
+}
+.rq-gym-players {
+  max-height: 340px;
+  overflow-y: auto;
+}
+.rq-gym-group {
+  margin-bottom: 10px;
+}
+.rq-gym-group h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--cm-muted);
+}
+.rq-gym-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rq-chip {
+  border: 1px solid var(--cm-line);
+  background: var(--cm-panel-2);
+  color: var(--cm-text);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.rq-chip.active {
+  border-color: var(--cm-gold);
+  background: rgba(251, 191, 36, 0.14);
+}
+.rq-gym-preview {
+  font-size: 14px;
+  margin: 0 0 14px;
+}
+
+/* ---------- Fim de jornada ---------- */
+.cm-modal-over {
+  border-color: var(--cm-red);
+  background: radial-gradient(circle at 50% 0%, #2a1414, var(--cm-panel) 70%);
+}
+.rq-over-emoji {
+  font-size: 56px;
+}
+
+@media (max-width: 760px) {
+  .rq-market-cols,
+  .rq-gym-cols {
+    grid-template-columns: 1fr;
+  }
+  .rc-grid {
+    grid-template-columns: 1fr;
+  }
+}

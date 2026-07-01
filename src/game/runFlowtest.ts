@@ -1,0 +1,109 @@
+/**
+ * Teste de fluxo manual do modo roguelike: exercita as MESMAS funções que os
+ * botões da UI chamam — mapa, escalação (titular/banco), mercado, academia,
+ * partida (motor animado) e o gate de "não pode vender abaixo de 11".
+ */
+import {
+  newRun,
+  enterNode,
+  quickPlayNode,
+  pickReward,
+  swapStarter,
+  startingXI,
+  shopOffers,
+  buyPlayer,
+  sellPlayer,
+  boostAttribute,
+  leaveNode,
+  SQUAD_MIN,
+} from './run'
+import { ALL_CLUBS } from './worldcup'
+import { lineupFor } from './lineup'
+import { createMatch, step } from '../sim/engine'
+import { PHYS } from '../sim/constants'
+
+const assert = (cond: boolean, msg: string) => {
+  if (!cond) throw new Error('FALHA: ' + msg)
+}
+
+// 1) nova run
+const clubId = Object.keys(ALL_CLUBS)[0]
+const state = newRun('Testador', clubId, 999)
+assert(state.status === 'map', 'deveria começar no mapa')
+assert(state.squad.length === 11, 'elenco inicial deve ter 11 jogadores')
+assert(state.startingIds.length === 11, 'deve ter 11 titulares de saída')
+assert(state.coins === 100, 'deve começar com 100 moedas')
+assert(state.availableNodeIds.length > 0, 'deve haver nós disponíveis na fase 1')
+
+// 2) escalação: bota um reserva fictício e promove no lugar de um titular
+const bench = { ...state.squad[0], id: 99999, name: 'Reserva Teste' }
+state.squad.push(bench)
+const starterId = state.startingIds[0]
+swapStarter(state, bench.id, starterId)
+assert(state.startingIds.includes(bench.id), 'reserva deveria virar titular')
+assert(!state.startingIds.includes(starterId), 'antigo titular deveria sair do XI')
+swapStarter(state, starterId, bench.id) // desfaz p/ não afetar o resto do teste
+state.squad = state.squad.filter((p) => p.id !== bench.id)
+
+// 3) entra num nó de mercado ou academia se houver, senão força via partida
+let node = state.nodes.find((n) => state.availableNodeIds.includes(n.id) && n.kind === 'market')
+if (node) {
+  enterNode(state, node.id)
+  assert(state.status === 'market', 'deveria abrir o mercado')
+  const offers = shopOffers(state)
+  assert(offers.length > 0, 'mercado deve ter ofertas')
+  const before = state.squad.length
+  const affordable = [...offers].sort((a, b) => a.fee - b.fee)[0]
+  if (state.coins >= affordable.fee) {
+    assert(buyPlayer(state, affordable), 'compra deveria suceder')
+    assert(state.squad.length === before + 1, 'elenco deveria crescer')
+  }
+  // não pode vender abaixo de 11
+  while (state.squad.length > SQUAD_MIN) sellPlayer(state, state.squad[0].id)
+  assert(state.squad.length === SQUAD_MIN, 'deveria parar exatamente em 11')
+  assert(!sellPlayer(state, state.squad[0].id), 'não pode vender abaixo de 11')
+  leaveNode(state)
+  assert(state.status === 'map', 'deveria voltar ao mapa após o mercado')
+}
+
+const gymNode = state.nodes.find((n) => state.availableNodeIds.includes(n.id) && n.kind === 'gym')
+if (gymNode) {
+  enterNode(state, gymNode.id)
+  assert(state.status === 'gym', 'deveria abrir a academia')
+  const p = state.squad[0]
+  const before = p.attrs.finishing
+  boostAttribute(state, p.id, 'finishing')
+  assert(p.attrs.finishing === Math.min(100, before + 20), 'deveria bufar +20 (teto 100)')
+  leaveNode(state)
+  assert(state.status === 'map', 'deveria voltar ao mapa após a academia')
+}
+
+// 4) joga partidas (rápidas) até vencer alguma e receber a recompensa em cartas
+let guard = 0
+while (state.status !== 'reward' && state.status !== 'gameover' && guard++ < 20) {
+  const matchNode = state.nodes.find((n) => state.availableNodeIds.includes(n.id) && !n.cleared)
+  if (!matchNode) break
+  enterNode(state, matchNode.id)
+  if (state.status === 'match') quickPlayNode(state)
+  else if (state.status === 'market' || state.status === 'gym') leaveNode(state)
+}
+if (state.status === 'reward') {
+  assert((state.pendingReward?.length ?? 0) === 3, 'recompensa deve oferecer 3 cartas')
+  const beforeLen = state.squad.length
+  pickReward(state, 0)
+  assert(state.squad.length === beforeLen + 1, 'elenco deveria crescer com a carta escolhida')
+  const statusAfter: string = state.status
+  assert(statusAfter === 'map', 'deveria voltar ao mapa após escolher a carta')
+}
+
+// 5) motor ANIMADO com o elenco titular da run (valida lineupFor + createMatch)
+const xi = startingXI(state)
+const oppSquad = state.nodes.find((n) => n.opponent)?.opponent?.squad ?? xi
+const rosters = { home: lineupFor(xi), away: lineupFor(oppSquad) }
+assert(rosters.home.length === 11 && rosters.away.length === 11, 'escalação deve ter 11')
+const match = createMatch(rosters)
+assert(match.players.length === 22, 'partida deve ter 22 jogadores')
+for (let i = 0; i < 200; i++) step(match, PHYS.dt)
+assert(match.time > 0, 'o relógio da partida deve avançar')
+
+console.log('OK: fluxo manual completo do modo roguelike (mapa, escalação, mercado, academia, partida) funciona.')

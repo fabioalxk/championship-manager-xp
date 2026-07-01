@@ -10,9 +10,12 @@ export const bestEleven = (squad: GenPlayer[]): GenPlayer[] => {
   return eleven
 }
 
-/** Força do time 0..100 = média da melhor escalação. */
-export const teamStrength = (club: ClubState): number => {
-  const xi = bestEleven(club.squad)
+/** Força de um elenco 0..100 = média da melhor escalação possível dele. */
+export const squadStrength = (squad: GenPlayer[]): number => {
+  const xi = bestEleven(squad)
   if (xi.length === 0) return 40
   return xi.reduce((s, p) => s + p.overall, 0) / xi.length
 }
+
+/** Força do time 0..100 = média da melhor escalação. */
+export const teamStrength = (club: ClubState): number => squadStrength(club.squad)

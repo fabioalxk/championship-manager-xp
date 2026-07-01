@@ -1,10 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import CareerApp from './career/CareerApp'
+import RunApp from './run/RunApp'
 import './index.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <CareerApp />
+    <RunApp />
   </StrictMode>,
 )

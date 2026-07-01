@@ -12,6 +12,9 @@ const TESTS = [
   { entry: 'src/game/selftest.ts', jsx: false },
   { entry: 'src/game/flowtest.ts', jsx: false },
   { entry: 'src/career/ssrtest.tsx', jsx: true },
+  { entry: 'src/game/runSelftest.ts', jsx: false },
+  { entry: 'src/game/runFlowtest.ts', jsx: false },
+  { entry: 'src/run/ssrtest.tsx', jsx: true },
 ]
 
 const outDir = resolve('.test-build')
