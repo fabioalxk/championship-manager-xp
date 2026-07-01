@@ -18,7 +18,15 @@ const deltaColor = (v: number): string => (v > 100 ? '#4ade80' : attrColor(v))
  * Enquanto o efeito dura (até o fim da próxima partida), um chip na cor da poção
  * mostra quem está bufado e o valor turbinado.
  */
-export default function PotionsHud({ state, act }: { state: RunState; act: RunApi['act'] }) {
+export default function PotionsHud({
+  state,
+  act,
+  onOpenPicker,
+}: {
+  state: RunState
+  act: RunApi['act']
+  onOpenPicker?: () => void
+}) {
   const [picking, setPicking] = useState<number | null>(null)
   const kind = picking !== null ? state.potions[picking] : undefined
   const usable = state.status === 'map'
@@ -44,7 +52,10 @@ export default function PotionsHud({ state, act }: { state: RunState; act: RunAp
           key={`potion-${i}`}
           className={`rq-potion-chip rq-potion-${k}`}
           disabled={!usable}
-          onClick={() => setPicking(i)}
+          onClick={() => {
+            setPicking(i)
+            onOpenPicker?.()
+          }}
           title={`${POTION_INFO[k].label}: +${POTION_BOOST} de ${attrLabel(k)} num titular (pode passar de 100, teto ${POTION_ATTR_CAP}) até o fim da próxima partida${usable ? '' : ' — volte ao mapa para usar'}`}
         >
           <PotionIcon kind={k} size={21} />
