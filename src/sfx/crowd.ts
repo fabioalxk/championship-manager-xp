@@ -1,7 +1,7 @@
 /**
  * Efeitos sonoros sintetizados (sem arquivos de áudio): um "rugido de torcida"
- * para o gol, montado em WebAudio a partir de ruído branco filtrado com um
- * envelope de subida/descida. Fica claro no ouvido que saiu gol.
+ * para o gol e o APITO do árbitro, montados em WebAudio — ruído branco filtrado
+ * para a torcida, tom agudo com trinado de "bolinha" para o apito.
  *
  * Política de autoplay: o AudioContext só toca após um gesto do usuário, por
  * isso `primeAudio()` deve ser chamado nos cliques (Jogar/Nova partida).
@@ -64,4 +64,63 @@ export const goalRoar = (): void => {
   gain.connect(c.destination)
   noise.start(now)
   noise.stop(now + dur)
+}
+
+/**
+ * Um SOPRO de apito: tom agudo (~2.1kHz) com o TRINADO da "bolinha" (o volume
+ * treme rápido) e um band-pass que arredonda a aspereza da onda quadrada.
+ */
+const whistleBlast = (c: AudioContext, at: number, dur: number) => {
+  const osc = c.createOscillator()
+  osc.type = 'square'
+  osc.frequency.value = 2100
+  const bp = c.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.frequency.value = 2100
+  bp.Q.value = 6
+
+  // envelope do sopro: ataque imediato, corte rápido no fim
+  const gain = c.createGain()
+  gain.gain.setValueAtTime(0.0001, at)
+  gain.gain.exponentialRampToValueAtTime(0.09, at + 0.02)
+  gain.gain.setValueAtTime(0.09, at + Math.max(0.03, dur - 0.06))
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + dur)
+
+  // a "bolinha" do apito: um LFO que faz o volume tremer (trinado)
+  const trill = c.createOscillator()
+  trill.type = 'sine'
+  trill.frequency.value = 44
+  const trillGain = c.createGain()
+  trillGain.gain.value = 0.05
+  trill.connect(trillGain)
+  trillGain.connect(gain.gain)
+
+  osc.connect(bp)
+  bp.connect(gain)
+  gain.connect(c.destination)
+  osc.start(at)
+  osc.stop(at + dur)
+  trill.start(at)
+  trill.stop(at + dur)
+}
+
+/**
+ * Apito do árbitro nos fins de tempo:
+ *  • 'stop' — um toque seco: os jogadores param, a bola ainda rola;
+ *  • 'half' — um apito longo: intervalo;
+ *  • 'full' — os três apitos clássicos (curto, curto, looongo): fim de jogo.
+ */
+export const refWhistle = (kind: 'stop' | 'half' | 'full'): void => {
+  const c = getCtx()
+  if (!c) return
+  if (c.state === 'suspended') void c.resume()
+
+  const now = c.currentTime
+  if (kind === 'stop') whistleBlast(c, now, 0.45)
+  else if (kind === 'half') whistleBlast(c, now, 1.0)
+  else {
+    whistleBlast(c, now, 0.28)
+    whistleBlast(c, now + 0.4, 0.28)
+    whistleBlast(c, now + 0.8, 1.2)
+  }
 }

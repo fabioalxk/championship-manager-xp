@@ -20,11 +20,18 @@ export default function NewRun({
   const chosen = WC_TEAM_LIST.find((c) => c.id === clubId)!
 
   return (
-    <div className="cm-newgame">
+    <div className="cm-newgame rq-title">
+      <img className="rq-title-bg" src="/assets/slayOfCM_background.png" alt="" aria-hidden />
+      <div className="rq-title-veil" aria-hidden />
       <div className="cm-newgame-card">
         <div className="cm-brand">
           <span className="cm-brand-ball">⚽</span>
           <h1 className="cm-title">Slay of the CM</h1>
+        </div>
+        <div className="rq-title-tags">
+          <span className="rq-title-tag">⚔️ Roguelike</span>
+          <span className="rq-title-tag">🌍 Copa do Mundo</span>
+          <span className="rq-title-tag">☠️ Perdeu, acabou</span>
         </div>
         <p className="cm-subtitle">
           Escolha uma seleção da Copa do Mundo e suba o mapa enfrentando um adversário por fase até

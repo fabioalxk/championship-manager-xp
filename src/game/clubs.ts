@@ -1,4 +1,5 @@
 import type { ClubDef, Division } from './types'
+import { slug } from './slug'
 
 /**
  * Clubes REAIS por divisão (identidade só: nome + cores). Os jogadores são
@@ -100,14 +101,6 @@ const D: Row[] = [
   ['Costa Rica-MS', 'CRM', '#1e40af', '#f8fafc'],
   ['União Rondonópolis', 'URO', '#e11d2a', '#f6c915'],
 ]
-
-const slug = (name: string): string =>
-  name
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '')
 
 const toDefs = (rows: Row[]): ClubDef[] =>
   rows.map(([name, short, shirt, text]) => ({ id: slug(name), name, short, shirt, text }))

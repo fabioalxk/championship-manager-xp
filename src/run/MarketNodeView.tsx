@@ -1,6 +1,8 @@
 import type { RunState } from '../game/runTypes'
 import { SQUAD_MIN, buyPlayer, coinValueOf, leaveNode, sellPlayer, shopOffers } from '../game/run'
 import { ROLE_LABEL, attrColor } from '../ui/attrDisplay'
+import { PlayerAvatar } from '../ui/PlayerAvatar'
+import { MarketIcon } from './MapIcons'
 import type { RunApi } from './useRun'
 
 const ROLE_ORDER = { GK: 0, DEF: 1, MID: 2, FWD: 3 }
@@ -15,7 +17,9 @@ export default function MarketNodeView({ state, act }: { state: RunState; act: R
   return (
     <div className="cm-backdrop">
       <div className="cm-modal rq-market">
-        <h2>🛒 Mercador de jogadores</h2>
+        <h2>
+          <MarketIcon size={26} className="rq-h2-ico" /> Mercador de jogadores
+        </h2>
         <p className="cm-modal-sub">
           Moedas: <strong>{state.coins}</strong> · Elenco: {state.squad.length} (mínimo {SQUAD_MIN})
         </p>
@@ -31,6 +35,7 @@ export default function MarketNodeView({ state, act }: { state: RunState; act: R
                     <span className="cm-squad-ovr" style={{ color: attrColor(o.player.overall) }}>
                       {o.player.overall}
                     </span>
+                    <PlayerAvatar teamId={undefined} name={o.player.name} />
                     <span className="cm-market-name">
                       <strong>{o.player.name}</strong>
                       <small>
@@ -62,6 +67,7 @@ export default function MarketNodeView({ state, act }: { state: RunState; act: R
                     <span className="cm-squad-ovr" style={{ color: attrColor(p.overall) }}>
                       {p.overall}
                     </span>
+                    <PlayerAvatar teamId={state.clubId} name={p.name} />
                     <span className="cm-market-name">
                       <strong>{p.name}</strong>
                       <small>

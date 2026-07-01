@@ -36,7 +36,7 @@ var AIR = {
    *  numa faixa maior da descida, gerando mais cabeçadas a gol. */
   reachHeight: 3,
   /** alcance vertical extra (m) por competência aérea (jumping/heading) */
-  reachAerial: 1.05,
+  reachAerial: 1.5,
   /** altura (m) que o GOLEIRO alcança com as mãos/salto (+ aerialReach) */
   gkReachHeight: 2.85,
   gkReachAerial: 1.1,
@@ -120,9 +120,21 @@ var WHISTLE = {
   /** meia-largura (m) da FAIXA NEUTRA em torno do meio-campo onde o apito é liberado.
    *  17.5 = terço central exato (a bola precisa ter voltado ao meio, longe das áreas). */
   neutralHalfWidth: 17.5,
+  /** distância mínima (m) de um reinício SEM perigo (lateral / falta de recomposição)
+   *  ao gol ATACADO pelo cobrador para o apito ser liberado nele — lateral na quina
+   *  do ataque é quase um escanteio (lance de perigo): cobra-se primeiro. */
+  safeRestartDist: 30,
   /** teto de espera (s de JOGO) por uma pausa natural depois de esgotado o tempo —
-   *  passado isso o árbitro apita de qualquer jeito (não deixa o tempo esticar sem fim). */
-  maxExtraWait: 90
+   *  passado isso o árbitro apita de qualquer jeito (não deixa o tempo esticar sem
+   *  fim). Com as pausas ampliadas (lateral/tiro de meta contam), raramente é usado. */
+  maxExtraWait: 300,
+  /** APITO soado: por quantos segundos REAIS a cena ainda "morre" — os jogadores
+   *  desaceleram até parar e a bola segue rolando livre — antes da faixa de
+   *  INTERVALO/FIM DE JOGO entrar (nada de corte seco no meio da animação). */
+  stopDuration: 1.6,
+  /** fração da velocidade que um jogador RETÉM por segundo após o apito (freio
+   *  suave até parar — mesmo padrão do atordoamento em `advancePlayer`). */
+  playerStopDamp: 0.05
 };
 var KICKOFF = {
   /** raio do círculo central (m) — o adversário aguarda fora dele */
@@ -202,13 +214,13 @@ var CARD = {
   /** chance-base de cartão numa falta */
   base: 0.1,
   /** peso da agressividade na chance de cartão */
-  aggressionWeight: 0.22,
+  aggressionWeight: 0.12,
   /** acréscimo de chance de cartão quando a falta é pênalti (lance claro) */
   penaltyBonus: 0.15,
   /** fração das faltas cartonadas que são VERMELHO direto (falta grave) */
   straightRedFrac: 0.12,
   /** quanto a agressividade do infrator aumenta a chance de vermelho direto */
-  straightRedAggr: 0.8
+  straightRedAggr: 0.5
 };
 var DOGSO = {
   /** distância (m) ao gol até onde a falta ainda nega uma chance clara */
@@ -301,7 +313,7 @@ var SHOT = {
   /** piso de velocidade do chute (m/s) — toque/colocado sem força */
   speedBase: 16,
   /** parcela da velocidade vinda da FORÇA (potência do chute) */
-  speedStrength: 16,
+  speedStrength: 20,
   /** parcela menor vinda da finalização (técnica de bater firme) */
   speedFinishing: 4,
   /** parcela extra de potência vinda de longShots, só pesando no chute de LONGE */
@@ -311,21 +323,20 @@ var SHOT = {
   spinAimBias: 0.7,
   /** penalidade de mira por bater FORTE (potência) — quem martela sem técnica
    *  abre o chute; technique tempera essa abertura (0=potência não custa mira) */
-  powerSpread: 0.16,
+  powerSpread: 0.3,
   /** DISPERSÃO da finalização (fonte única, tunável): piso de erro + parcela que
    *  cresce quanto PIOR o finalizador, e o quanto technique/consistency ainda
    *  amplificam o erro. Quanto menores, mais chutes saem enquadrados (mais gols)
    *  e menos o talento separa bons de ruins (a Série D também faz gol). */
-  spreadFloor: 0.04,
-  spreadScale: 0.3,
-  spreadTech: 0.3,
-  spreadCons: 0.24,
+  spreadFloor: 0.02,
+  spreadScale: 0.42,
+  spreadTech: 0.6,
   // --- chute POR CIMA (blazed over) ---
   /** chance-base de um chute SUBIR demais e ir por cima do gol — escalada por
    *  (1 - finalização/frieza): o afobado/tosco manda pra arquibancada. Traz de
    *  volta o "por cima do travessão" e o carimbo na trave (senão todo chute é
    *  rasteiro) e ainda derruba um pouco a conversão (hoje ~3× alta). */
-  skyBase: 0.2,
+  skyBase: 0.03,
   /** multiplicador da chance de subir demais quando o finalizador está PRESSIONADO */
   skyPress: 1.6,
   /** velocidade vertical (m/s) de um chute que sobe demais — piso + parcela aleatória */
@@ -333,11 +344,11 @@ var SHOT = {
   skyVzVar: 7
 };
 var HEAD = {
-  /** chance-base de uma cabeçada a gol bem dada (0.60: quando o atacante alcança o
+  /** chance-base de uma cabeçada a gol bem dada (quando o atacante alcança o
    *  cruzamento na área, a cabeçada tende a sair enquadrada — mais gols de cabeça) */
-  base: 0.6,
+  base: 0.75,
   /** peso da competência aérea (jumping/heading) na chance */
-  skill: 0.5,
+  skill: 0.75,
   /** peso da frieza (composure) na chance */
   composure: 0.12,
   /** piso/teto da chance de cabecear no rumo do gol */
@@ -347,12 +358,12 @@ var HEAD = {
    *  menos a cabeçada; ainda abaixo do chute de pé */
   speedBase: 17,
   /** parcela de velocidade vinda da impulsão/força aérea (m/s) */
-  speedSkill: 9,
+  speedSkill: 11,
   /** dispersão angular máxima da cabeçada (rad). Reduzida (era 0.42) p/ a cabeçada
    *  sair mais ENQUADRADA — sem isso a maioria ia para fora e não virava gol. */
   scatter: 0.16,
   /** quanto o heading aperta a mira (reduz o scatter; 0..1) */
-  scatterAim: 0.6
+  scatterAim: 0.75
 };
 var GAMESTATE = {
   /** fração do jogo (0..1) a partir da qual a gestão de placar começa a pesar */
@@ -374,19 +385,19 @@ var AI = {
   /** o quanto o bloco do time desliza lateralmente com a bola (0..1) */
   blockShiftY: 0.6,
   /** ATAQUE: empurra o time para frente quando tem a bola (m) */
-  attackPush: 16,
+  attackPush: 19,
   /** folga (m) além do último defensor antes de cair em impedimento */
   offsideSlack: 1.5,
   /** DEFESA: compactação rumo à linha da bola ao defender (0..1) */
   compactX: 0.38,
   /** DEFESA: quão forte a marcação individual cola no adversário (0..1) */
-  markTight: 0.32,
+  markTight: 0.6,
   /** amplitude (m) da tendência posicional individual (variação humana) */
   humanJitter: 1.1,
   /** distância-base ao gol para tentar o chute (m); ajustada pela finalização.
-   *  20: perto o bastante p/ o jogador ENTRAR na área/conduzir antes de bater, em vez
+   *  Perto o bastante p/ o jogador ENTRAR na área/conduzir antes de bater, em vez
    *  de martelar de 30m+ (30 gerava chute só de fora e gols demais). */
-  shootRange: 20,
+  shootRange: 25,
   /** offTheBall: quanto a corrida sobe rumo à linha de impedimento (0..1) */
   offBallRunDepth: 0.35,
   /** desvio lateral máximo (m) em relação ao centro do gol p/ arriscar o chute.
@@ -437,15 +448,15 @@ var AI = {
   /** velocidade máx (m/s) do passe de recuo — firme mas DOMINÁVEL pelo GK (recuo
    *  de pé, não um chute): abaixo de GK.controlSpeed para cair na regra do recuo */
   recycleSpeed: 11,
-  /** vision: peso extra dado à PROGRESSÃO do passe (quanto enxerga o passe pra frente) */
-  visionForward: 0.9,
-  /** vision: peso extra dado a ENFIAR em lane apertada (vê a janela difícil) */
-  visionLane: 1,
+  /** decisions: peso extra dado à PROGRESSÃO do passe (quanto enxerga o passe pra frente) */
+  visionForward: 1.3,
+  /** decisions: peso extra dado a ENFIAR em lane apertada (vê a janela difícil) */
+  visionLane: 1.4,
   /** decisions: bônus de peso ao companheiro LIVRE (jogo seguro do decidido) */
-  decisionSafe: 0.7,
+  decisionSafe: 1.6,
   /** decisions: penalidade por enfiar forte em lane apertada (risco desnecessário) */
-  decisionRisk: 0.12,
-  /** offTheBall do recebedor: peso da CORRIDA (vel à frente) que torna o
+  decisionRisk: 0.35,
+  /** positioning do recebedor: peso da CORRIDA (vel à frente) que torna o
    *  companheiro uma opção de passe preferida (o craque acha quem se movimenta) */
   offBallOption: 0.5,
   /** crossing: progressão (m) exigida para preferir o cruzamento ao passe raso —
@@ -493,7 +504,7 @@ var MOVE = {
   turnFloor: 0.35,
   /** bônus de velocidade EFETIVA (m/s) por aceleração — nas distâncias curtas da
    *  partida quem arranca melhor passa mais tempo no topo (não só rampa inicial) */
-  accelTopEnd: 0.8,
+  accelTopEnd: 1.2,
   /** taxa (1/s) de suavização do alvo de movimento (low-pass anti-trancos) */
   targetLerp: 11,
   /** histerese: já acomodado, só volta a corrigir além de dz × este fator */
@@ -512,7 +523,7 @@ var STAMINA = {
   /** dreno = drainBase - stamina·drainStamina (gasta menos quem tem mais fôlego);
    *  faixa suavizada para não somar à queda de ritmo já aplicada em maxSpeed */
   drainBase: 1.25,
-  drainStamina: 0.7,
+  drainStamina: 1.05,
   /** recuperação por segundo de JOGO ao andar/trotar */
   recover: 4e-3,
   /** quanto a recuperação MINGUA com a exaustão (× falta de naturalFitness) */
@@ -531,7 +542,7 @@ var GK = {
   /** fração da distância à bola usada para sair (sweeper-base) */
   comeOutBase: 0.11,
   /** saída extra conforme o atributo oneOnOne */
-  comeOutSkill: 0.1,
+  comeOutSkill: 0.25,
   comeOutMin: 1.3,
   comeOutMax: 7,
   /** bola tão perto do gol → segura a linha para reagir ao chute (m) */
@@ -548,14 +559,14 @@ var GK = {
   frontalSpeed: 0.7,
   // --- alcance / defesa física (itens 37-39) ---
   reachBase: 2.4,
-  reachReflex: 1,
+  reachReflex: 1.5,
   reachAgility: 0.7,
   /** extensão do alcance por (vel-controlSpeed) ao voar no chute (m·s/m) */
   diveSpeedScale: 0.05,
   diveMax: 1.6,
   /** o mergulho no chute forte escala com o REFLEXO: piso + parcela de habilidade */
-  diveReflexFloor: 0.7,
-  diveReflexSkill: 0.5,
+  diveReflexFloor: 0.55,
+  diveReflexSkill: 0.9,
   /** bola até esta velocidade = domínio sem disputa (recuo/passe atrás) */
   controlSpeed: 12,
   // --- probabilidade de defesa (itens 13-24) ---
@@ -563,27 +574,27 @@ var GK = {
    *  baixo também ACHATA a diferença entre goleiros: sem isso, a conversão da elite
    *  disparava e a Série D não convertia (goleiros fracos não seguravam o suficiente
    *  para compensar a finalização fraca). */
-  saveBase: 0.07,
+  saveBase: 0,
   /** peso da habilidade combinada do GK (reflexo/posicion./agilidade) */
-  saveSkill: 0.09,
+  saveSkill: 0.7,
   /** velocidade de chute sem penalidade (m/s) — abaixo disso é colocado, fácil de defender */
-  saveSpeedFree: 20,
+  saveSpeedFree: 18,
   saveSpeedPen: 0.012,
   /** penalidade por chute no canto (longe do meio do gol) */
-  saveAnglePen: 0.22,
+  saveAnglePen: 0.3,
   /** bônus por estar bem posicionado na hora do chute */
-  savePosBonus: 0.16,
+  savePosBonus: 0.06,
   /** faixa (m) de tolerância do bom posicionamento */
   alignBand: 6,
   /** distância de chute considerada "perto" (menos tempo de reação) (m) */
-  closeShot: 14,
-  saveClosePen: 0.18,
+  closeShot: 16,
+  saveClosePen: 0.3,
   saveFatiguePen: 0.08,
-  saveFloor: 0.12,
-  saveCap: 0.8,
+  saveFloor: 0.08,
+  saveCap: 0.9,
   // --- segurar vs. espalmar / erros (itens 17-24) ---
   holdBase: 0.55,
-  holdSkill: 0.34,
+  holdSkill: 0.8,
   holdReflex: 0.14,
   holdSpeedPen: 0.012,
   /** mãos firmes (handling) amortecem a penalidade de segurar o chute FORTE (0..1) */
@@ -594,9 +605,9 @@ var GK = {
   spillCooldown: 0.25,
   /** chance (× reflexos) de tocar e dar rebote ao falhar a defesa (reduzida de 0.33:
    *  menos "segunda defesa" no rebote, ajudando a conversão a chegar em ~3 gols/jogo) */
-  secondChance: 0.1,
+  secondChance: 0.3,
   /** chance-base de "frango" em bola fácil (× falhas de handling/composure) */
-  fumbleScale: 0.05,
+  fumbleScale: 0.12,
   /** janela protegida para distribuir após defender (s) */
   protectWindow: 0.6,
   // --- distribuição (itens 45-49) ---
@@ -656,18 +667,18 @@ var GK = {
    *  goleiro abafa menos cruzamentos, deixando a bola sobrar p/ o cabeceio) */
   claimBase: 0.1,
   /** peso do aerialReach em cravar a bola alta (× nrm aerialReach) */
-  claimSkill: 0.5,
+  claimSkill: 0.6,
   /** penalidade por bola forte ao cravar de primeira (× m/s) */
   claimSpeedPen: 0.01,
   /** piso/teto da chance de cravar o cruzamento */
   claimFloor: 0.15,
   claimCap: 0.9,
   /** bônus de defesa no 1v1/chute de perto conforme oneOnOne */
-  oneOnOneBonus: 0.16,
+  oneOnOneBonus: 0.45,
   /** alcance (m) em que um 1v1 isolado (sem apoio do atacante) ainda premia oneOnOne */
-  oneOnOneRange: 24,
+  oneOnOneRange: 34,
   /** saída extra (m) no perigo iminente p/ ABAFAR o 1v1, escalada por oneOnOne */
-  rushOneOnOne: 3.5,
+  rushOneOnOne: 5,
   /** quanto o handling joga o rebote para LONGE do meio do gol (0..1) */
   spillWide: 0.7,
   /** piso/escala do erro aéreo: bola alta cai mais sem aerialReach (× fumbleScale) */
@@ -711,7 +722,7 @@ var CONTROL = {
   /** escala da chance de errar o primeiro toque na bola solta. REDUZIDA (era 0.22):
    *  menos erros de domínio → os times (sobretudo os fracos) SUSTENTAM mais posse e
    *  chegam mais vezes ao chute, o que é essencial p/ a Série D fazer gols. */
-  miscontrolScale: 0.06,
+  miscontrolScale: 0.12,
   /** velocidade (m/s) acima da qual a bola é "alta/forte" e exige disputa aérea */
   loftSpeed: 18,
   /** alcance extra (m) ganho na bola alta conforme a competência aérea (1.8, era 0.9:
@@ -719,7 +730,7 @@ var CONTROL = {
   aerialReach: 1.8,
   /** vantagem (m) de distância EFETIVA na dividida aérea conforme jumping/heading
    *  (3.2: o atacante que ataca o cruzamento ganha mais divididas de cabeça na área) */
-  aerialDuelEdge: 3.2,
+  aerialDuelEdge: 4.5,
   /** vantagem (m) EXTRA do atacante na dividida aérea DENTRO da sua área de ataque —
    *  inclina o cruzamento para quem ataca o gol (mais gols de cabeça). Ver ballCandidate. */
   aerialAtkBoxEdge: 3,
@@ -757,8 +768,8 @@ var DUEL = {
    *  beatBase↑ e beatSwing↓ (eram 0.18/0.75) tornam o drible MENOS dependente do
    *  talento: o ataque progride mais, gerando mais chances (ajuda a Série D). */
   beatBase: 0.24,
-  beatSwing: 0.55,
-  beatCap: 0.66,
+  beatSwing: 0.85,
+  beatCap: 0.82,
   /** PASSOU: o defensor mordeu e ficou desequilibrado por um átimo (s) — é o que
    *  abre o espaço de verdade; o bom equilíbrio (balance) encurta essa recuperação */
   beatStun: 0.55,
@@ -770,19 +781,19 @@ var DUEL = {
   /** folga (× cooldown) antes do próximo bote depois de um drible bem-sucedido */
   beatTackleGap: 3,
   /** chance-base de desarme bem-sucedido por tentativa (reduzida de 0.5) */
-  baseWin: 0.42,
+  baseWin: 0.34,
   /** peso da diferença de poder (desarme×condução) na chance de roubada. REDUZIDO
    *  (era 1.1): o desarme depende MENOS do talento, então o ataque mantém mais a
    *  posse e chega mais ao gol — parte de trazer a Série D a ~3 gols/jogo. */
-  duelSwing: 0.7,
+  duelSwing: 2.4,
   /** vantagem física do ombro a ombro na dividida (diferença de strength, ±1) */
-  strengthEdge: 0.22,
+  strengthEdge: 0.4,
   /** o quanto a bravura torna o bote mais comprometido (ganha mais ao acertar) */
-  braveryCommit: 0.35,
+  braveryCommit: 0.5,
   /** falta no desarme falhado (modelo overreach): piso, peso da agressão, risco
    *  por esticar-se, agravante de bravura e alívio por ler bem o lance (clean) */
   foulBase: 0.1,
-  foulAggr: 0.45,
+  foulAggr: 0.18,
   foulOverreach: 0.3,
   foulBravery: 0.25,
   foulClean: 0.6,
@@ -805,9 +816,9 @@ var RESTART = {
   /** faixa (m) ALÉM da linha do campo até onde a bola fora rola antes de parar (cabe
    *  no PAD do render para continuar visível, como se batesse no alambrado) */
   goalLineOutMargin: 3,
-  /** bola parada no escanteio — dá tempo dos atacantes CARREGAREM a área e da
-   *  defesa recuar p/ marcar antes da cobrança (s). Curto demais = cruzamento numa
-   *  área vazia; ~2.6s deixa os dois blocos se posicionarem (como num jogo real). */
+  /** tempo-BASE da bola parada no escanteio (s) — dá tempo dos atacantes
+   *  CARREGAREM a área e da defesa recuar p/ marcar. Depois dele a cobrança ainda
+   *  espera a área encher de fato (cornerMinInBox, teto cornerMaxWait). */
   cornerDeadball: 3.2,
   /** bola parada no arremesso lateral (s) — dá tempo de reposicionar, não cobra na hora */
   throwInDeadball: 1.8,
@@ -853,8 +864,12 @@ var RESTART = {
     // marca do pênalti
     { depth: 10, side: 5 },
     // 2º pau
-    { depth: 14, side: 0 }
+    { depth: 14, side: 0 },
     // entrada da área (rebote/afastamento curto)
+    { depth: 6, side: -6 },
+    // 1º pau curto (desvio na primeira trave)
+    { depth: 12, side: 4 }
+    // entre a marca e o 2º pau
   ],
   /** slots da DEFESA no escanteio: marca na ZONA DE QUEDA, GOALSIDE dos atacantes
    *  (~1-2m mais perto do gol que cada alvo do ataque) para DISPUTAR o cabeceio —
@@ -869,12 +884,25 @@ var RESTART = {
     // contesta a marca do pênalti
     { depth: 8, side: 5 },
     // contesta o 2º pau
-    { depth: 3, side: 0 }
+    { depth: 3, side: 0 },
     // cobre a boca do gol (apoio ao goleiro)
+    { depth: 4, side: -5 },
+    // contesta o 1º pau curto
+    { depth: 13, side: 2 }
+    // fecha a entrada da área (rebote)
   ],
   /** profundidade (m), a partir do meio-campo rumo ao PRÓPRIO campo, onde os
    *  zagueiros do time que COBRA o escanteio seguram (proteção ao contra-ataque) */
-  cornerBackHold: 20
+  cornerBackHold: 20,
+  /** nº de zagueiros do time que COBRA que SOBEM para a área (os melhores no
+   *  jogo aéreo, como os zagueiros altos num jogo real); o resto segura atrás */
+  cornerDefUp: 2,
+  /** mínimo de companheiros (fora o cobrador) DENTRO da grande área para o
+   *  escanteio ser cobrado — ninguém cruza para uma área vazia */
+  cornerMinInBox: 6,
+  /** teto (s) de espera ALÉM do cornerDeadball pela área carregar — evita travar
+   *  a cobrança se alguém ficar preso no caminho */
+  cornerMaxWait: 6
 };
 var THROW = {
   /** alcance-base do arremesso (m) — modesto, é com a mão */
@@ -890,8 +918,8 @@ var THROW = {
 };
 
 // src/sim/chaos.ts
-var GK_ONLY = ["goalkeeping", "handling", "aerialReach", "oneOnOne", "kicking", "throwing", "communication"];
-var GK_CORE = ["goalkeeping", "reflexes", "handling"];
+var GK_ONLY = ["goalkeeping"];
+var GK_CORE = ["goalkeeping"];
 var applyChaos = (attrs, role, cfg, src) => {
   const out = { ...attrs };
   const keys = Object.keys(out);
@@ -959,120 +987,81 @@ var baseAttrs = (role) => {
     // físico
     pace: 65,
     acceleration: 65,
-    agility: 62,
-    balance: 62,
-    jumping: 60,
     strength: 65,
-    stamina: 70,
-    naturalFitness: 70,
-    workRate: 65,
     // técnico
     dribbling: 60,
     firstTouch: 62,
-    technique: 62,
-    passing: 65,
-    crossing: 55,
-    finishing: 50,
-    longShots: 52,
-    heading: 55,
+    passing: 64,
+    finishing: 52,
     tackling: 60,
-    marking: 60,
     // mental
-    vision: 63,
-    anticipation: 62,
-    positioning: 64,
-    offTheBall: 60,
-    decisions: 62,
-    composure: 58,
-    concentration: 62,
-    consistency: 62,
-    aggression: 60,
-    bravery: 62,
-    teamwork: 64,
-    flair: 55,
-    // reflexo: reação para tocar/chutar de primeira — atributo de TODOS (item: reflexos 0..100)
-    reflexes: 60,
-    // goleiro (jogador de linha quase não usa o resto)
-    goalkeeping: 15,
-    handling: 20,
-    aerialReach: 25,
-    oneOnOne: 20,
-    kicking: 45,
-    throwing: 35,
-    communication: 45
+    positioning: 62,
+    // goleiro (jogador de linha quase não usa)
+    goalkeeping: 20
   };
   if (role === "GK")
     return {
       ...b,
-      goalkeeping: 78,
-      tackling: 30,
+      goalkeeping: 75,
+      tackling: 32,
       finishing: 20,
-      marking: 35,
-      reflexes: 75,
-      handling: 72,
-      aerialReach: 70,
-      oneOnOne: 68,
-      kicking: 70,
-      throwing: 65,
-      communication: 72,
-      composure: 70,
-      agility: 70,
-      acceleration: 62,
-      jumping: 70
+      strength: 70,
+      positioning: 71,
+      acceleration: 70
     };
   if (role === "DEF")
-    return { ...b, tackling: 78, marking: 76, positioning: 78, strength: 76, heading: 70, bravery: 72 };
+    return { ...b, tackling: 77, positioning: 78, strength: 78 };
   if (role === "MID")
-    return { ...b, passing: 72, stamina: 78, workRate: 75, vision: 70, teamwork: 72 };
-  return { ...b, finishing: 78, pace: 80, dribbling: 78, offTheBall: 75, longShots: 68 };
+    return { ...b, passing: 72, strength: 72, positioning: 70 };
+  return { ...b, finishing: 78, pace: 80, dribbling: 78, positioning: 75 };
 };
 var BRASIL = [
-  { number: 1, name: "Alisson", attrs: { goalkeeping: 95, positioning: 90, strength: 75, reflexes: 90, handling: 88, aerialReach: 86, oneOnOne: 86, kicking: 82, throwing: 78, communication: 84, composure: 92, agility: 80, jumping: 80 } },
+  { number: 1, name: "Alisson", attrs: { goalkeeping: 91, positioning: 91, strength: 84, acceleration: 80, passing: 78 } },
   // lateral veterano: inteligente, mas perdendo o pique e sem peso ofensivo
-  { number: 2, name: "Danilo", attrs: { tackling: 76, marking: 78, positioning: 82, pace: 64, acceleration: 60, passing: 72, crossing: 62, teamwork: 78, decisions: 78, stamina: 62, dribbling: 54, finishing: 28, longShots: 32, flair: 36 } },
+  { number: 2, name: "Danilo", attrs: { tackling: 77, positioning: 78, pace: 64, acceleration: 60, passing: 72, strength: 60, dribbling: 54, finishing: 32 } },
   // zagueiro-líder: leitura e saída de bola de elite, nulo no ataque
-  { number: 4, name: "Marquinhos", attrs: { tackling: 86, marking: 88, positioning: 92, pace: 80, strength: 78, heading: 78, composure: 86, anticipation: 88, passing: 74, dribbling: 58, finishing: 26, longShots: 28, crossing: 30, flair: 32 } },
-  // muralha canhota: forte e bom de cabeça, MUITO lento e tosco com a bola
-  { number: 3, name: "Gabriel M.", attrs: { tackling: 84, marking: 82, strength: 90, aggression: 70, heading: 86, bravery: 84, pace: 58, acceleration: 56, agility: 46, dribbling: 38, passing: 56, technique: 44, finishing: 24, longShots: 22, composure: 56 } },
-  // lateral-ala: pace e cruzamento, FRACO defensivamente e no jogo aéreo
-  { number: 6, name: "Wendell", attrs: { pace: 82, acceleration: 80, stamina: 86, dribbling: 68, passing: 70, crossing: 78, workRate: 80, tackling: 54, marking: 52, heading: 40, strength: 52, finishing: 38, positioning: 52 } },
+  { number: 4, name: "Marquinhos", attrs: { tackling: 87, positioning: 89, pace: 80, strength: 78, passing: 74, dribbling: 58, finishing: 28 } },
+  // muralha canhota: forte e dono do alto, MUITO lento e tosco com a bola
+  { number: 3, name: "Gabriel M.", attrs: { tackling: 83, strength: 89, pace: 58, acceleration: 56, dribbling: 38, passing: 52, finishing: 24, positioning: 67 } },
+  // lateral-ala: pace e cruzamento, FRACO defensivamente e no físico
+  { number: 6, name: "Wendell", attrs: { pace: 82, acceleration: 80, strength: 62, dribbling: 68, passing: 78, tackling: 53, finishing: 38, positioning: 52 } },
   // volante destruidor: rouba e impõe físico, porém LENTO e travado tecnicamente
-  { number: 5, name: "Casemiro", attrs: { tackling: 90, marking: 86, strength: 90, positioning: 90, aggression: 82, vision: 72, passing: 74, bravery: 86, teamwork: 80, longShots: 72, heading: 80, pace: 56, acceleration: 52, agility: 44, dribbling: 48, firstTouch: 56 } },
+  { number: 5, name: "Casemiro", attrs: { tackling: 88, strength: 88, positioning: 81, passing: 74, finishing: 72, pace: 56, acceleration: 52, dribbling: 48, firstTouch: 56 } },
   // box-to-box completo: o equilibrado do time (poucas fraquezas, nada de elite)
-  { number: 8, name: "Bruno G.", attrs: { passing: 86, vision: 84, stamina: 90, dribbling: 76, tackling: 78, workRate: 86, longShots: 76, technique: 80, composure: 76, pace: 66, finishing: 56, heading: 52 } },
-  // camisa 10 de flair: técnica e visão, mas some na marcação e é inconstante
-  { number: 10, name: "Paquet\xE1", attrs: { dribbling: 86, passing: 82, vision: 86, finishing: 62, flair: 86, technique: 86, firstTouch: 84, composure: 70, pace: 68, tackling: 38, marking: 36, strength: 50, heading: 42, workRate: 54, consistency: 46 } },
-  // ponta-flecha: veloz e driblador, ZERO defesa e fraco no físico/aéreo
-  { number: 19, name: "Raphinha", attrs: { pace: 88, acceleration: 86, dribbling: 86, finishing: 76, passing: 72, crossing: 86, flair: 82, longShots: 76, agility: 86, offTheBall: 76, heading: 36, strength: 50, tackling: 30, marking: 28, composure: 62 } },
+  { number: 8, name: "Bruno G.", attrs: { passing: 84, positioning: 75, strength: 76, dribbling: 76, tackling: 78, finishing: 76, pace: 66 } },
+  // camisa 10 de talento: técnica e visão, mas some na marcação e é frágil
+  { number: 10, name: "Paquet\xE1", attrs: { dribbling: 86, passing: 84, positioning: 74, finishing: 62, firstTouch: 84, pace: 68, tackling: 37, strength: 50 } },
+  // ponta-flecha: veloz e driblador, ZERO defesa e fraco no físico
+  { number: 19, name: "Raphinha", attrs: { pace: 88, acceleration: 86, dribbling: 85, finishing: 76, passing: 86, positioning: 69, strength: 50, tackling: 29 } },
   // joia crua: letal e veloz, mas verde de decisão/passe/sangue-frio
-  { number: 9, name: "Endrick", attrs: { pace: 90, acceleration: 88, finishing: 86, dribbling: 80, strength: 66, offTheBall: 82, heading: 72, agility: 82, anticipation: 70, passing: 42, vision: 44, decisions: 46, composure: 50, consistency: 46, tackling: 22, workRate: 52, technique: 64 } },
-  // O DIFERENCIADO: pace/drible irreais e flair absurdo — mas finaliza só "bem",
-  // não marca, é fraco no alto/físico e ainda decide mal sob pressão
-  { number: 7, name: "Vini Jr.", attrs: { pace: 97, acceleration: 96, dribbling: 96, finishing: 72, stamina: 82, flair: 92, agility: 94, offTheBall: 80, technique: 86, crossing: 70, passing: 66, heading: 32, strength: 54, tackling: 20, marking: 22, composure: 58, decisions: 56, consistency: 56 } }
+  { number: 9, name: "Endrick", attrs: { pace: 90, acceleration: 88, finishing: 86, dribbling: 80, strength: 68, positioning: 65, passing: 48, tackling: 22 } },
+  // O DIFERENCIADO: pace/drible irreais — mas finaliza só "bem", não marca,
+  // é fraco no físico e ainda decide mal sob pressão
+  { number: 7, name: "Vini Jr.", attrs: { pace: 97, acceleration: 96, dribbling: 95, finishing: 72, positioning: 68, passing: 76, strength: 60, tackling: 21 } }
 ];
 var ARGENTINA = [
-  { number: 23, name: "Dibu", attrs: { goalkeeping: 90, positioning: 85, aggression: 72, reflexes: 86, handling: 84, aerialReach: 82, oneOnOne: 92, kicking: 78, throwing: 72, communication: 82, composure: 92, agility: 78, jumping: 78 } },
+  { number: 23, name: "Dibu", attrs: { goalkeeping: 90, positioning: 88, strength: 80, passing: 72, acceleration: 78 } },
   // lateral motor: pace e fôlego, limitado tecnicamente e na finalização
-  { number: 26, name: "Molina", attrs: { pace: 84, acceleration: 82, tackling: 72, stamina: 84, marking: 72, crossing: 74, workRate: 82, dribbling: 62, passing: 62, finishing: 36, technique: 56, heading: 46, composure: 56 } },
+  { number: 26, name: "Molina", attrs: { pace: 84, acceleration: 82, tackling: 72, strength: 66, passing: 70, dribbling: 62, finishing: 36, positioning: 67 } },
   // zagueiro brigão: marcação e raça de elite, tosco com a bola
-  { number: 13, name: "Cuti Romero", attrs: { tackling: 88, marking: 88, positioning: 86, strength: 88, aggression: 88, heading: 82, bravery: 86, anticipation: 82, pace: 72, composure: 70, dribbling: 50, passing: 62, technique: 50, finishing: 26, flair: 32 } },
+  { number: 13, name: "Cuti Romero", attrs: { tackling: 88, positioning: 78, strength: 87, pace: 72, dribbling: 50, passing: 58, finishing: 26 } },
   // veterano-bloco: MUITO lento, mas parede física e aérea, decisivo na raça
-  { number: 19, name: "Otamendi", attrs: { tackling: 82, marking: 80, strength: 90, aggression: 88, pace: 50, acceleration: 48, agility: 40, heading: 86, bravery: 88, dribbling: 36, technique: 40, passing: 56, finishing: 22, composure: 58, consistency: 56 } },
+  { number: 19, name: "Otamendi", attrs: { tackling: 81, strength: 89, pace: 50, acceleration: 48, dribbling: 36, passing: 56, finishing: 22, positioning: 68 } },
   // lateral regular: sólido e equilibrado, sem grande ponto fora da curva
-  { number: 3, name: "Tagliafico", attrs: { pace: 74, tackling: 78, stamina: 84, aggression: 72, marking: 78, crossing: 70, dribbling: 56, passing: 66, finishing: 36, heading: 56, flair: 42, strength: 64 } },
-  // motor incansável: pega, corre e briga 90', sem refino de finalização/aéreo
-  { number: 7, name: "De Paul", attrs: { stamina: 94, passing: 80, dribbling: 78, tackling: 78, aggression: 80, workRate: 92, teamwork: 86, technique: 78, pace: 72, vision: 74, finishing: 52, heading: 46, longShots: 66 } },
+  { number: 3, name: "Tagliafico", attrs: { pace: 74, tackling: 78, strength: 70, passing: 70, dribbling: 56, finishing: 36 } },
+  // motor incansável: pega, corre e briga 90', sem refino de finalização
+  { number: 7, name: "De Paul", attrs: { strength: 78, passing: 79, dribbling: 78, tackling: 78, positioning: 78, pace: 72, finishing: 66 } },
   // volante-criador: passe e leitura excelentes, NÃO é rápido nem físico
-  { number: 24, name: "Enzo", attrs: { passing: 88, vision: 88, stamina: 86, finishing: 62, technique: 82, longShots: 80, decisions: 86, composure: 80, pace: 60, acceleration: 58, tackling: 62, strength: 56, dribbling: 70, heading: 48, agility: 58 } },
+  { number: 24, name: "Enzo", attrs: { passing: 86, strength: 62, finishing: 80, positioning: 77, pace: 60, acceleration: 58, tackling: 62, dribbling: 70 } },
   // meia inteligente: técnica e chute de fora, mediano fisicamente
-  { number: 20, name: "Mac Allister", attrs: { passing: 86, vision: 84, finishing: 70, dribbling: 78, technique: 84, longShots: 80, composure: 84, decisions: 82, pace: 62, tackling: 66, strength: 54, heading: 46, stamina: 82 } },
+  { number: 20, name: "Mac Allister", attrs: { passing: 85, finishing: 80, dribbling: 78, positioning: 77, pace: 62, tackling: 66, strength: 60 } },
   // bruxo veterano: pés mágicos, mas o físico FOI embora e não defende
-  { number: 11, name: "Di Mar\xEDa", attrs: { dribbling: 86, passing: 86, vision: 90, finishing: 76, pace: 70, acceleration: 66, crossing: 90, flair: 90, technique: 88, longShots: 84, agility: 82, offTheBall: 76, stamina: 60, strength: 40, tackling: 28, marking: 28, heading: 36, consistency: 58 } },
+  { number: 11, name: "Di Mar\xEDa", attrs: { dribbling: 88, passing: 89, finishing: 84, pace: 70, acceleration: 82, positioning: 80, strength: 46, tackling: 28 } },
   // 9 moderno e móvel: completo e trabalhador, fraco no alto e no corpo
-  { number: 9, name: "J. \xC1lvarez", attrs: { finishing: 84, dribbling: 80, stamina: 90, vision: 80, offTheBall: 88, workRate: 88, anticipation: 82, pace: 80, acceleration: 82, passing: 72, technique: 78, composure: 78, heading: 56, strength: 56, tackling: 44 } },
-  // O DIFERENCIADO: drible/passe/visão/técnica sobrenaturais — porém físico
-  // mínimo (frágil, devagar, sem fôlego) e não corre nem marca um lance
-  { number: 10, name: "Messi", attrs: { dribbling: 99, passing: 97, finishing: 92, vision: 99, positioning: 80, pace: 70, acceleration: 68, strength: 40, flair: 99, technique: 99, firstTouch: 98, composure: 97, longShots: 88, decisions: 97, offTheBall: 86, agility: 86, stamina: 56, workRate: 28, tackling: 20, marking: 22, heading: 44, aggression: 32, jumping: 44 } }
+  { number: 9, name: "J. \xC1lvarez", attrs: { finishing: 84, dribbling: 80, strength: 66, positioning: 84, pace: 80, acceleration: 82, passing: 72, tackling: 44 } },
+  // O DIFERENCIADO: drible/passe/decisão sobrenaturais — porém físico mínimo
+  // (frágil, devagar, sem fôlego) e não marca um lance
+  { number: 10, name: "Messi", attrs: { dribbling: 99, passing: 98, finishing: 92, positioning: 92, pace: 70, acceleration: 86, strength: 45, firstTouch: 98, tackling: 21 } }
 ];
 var ROSTERS = { home: BRASIL, away: ARGENTINA };
 var CHAOS = {
@@ -1197,85 +1186,78 @@ var buildPlayers = (rosters) => [
 var nrm = (v) => v / 100;
 var clamp01 = (v) => Math.max(0, Math.min(1, v));
 var maxSpeed = (p) => {
-  const base = 5.4 + nrm(p.attrs.pace) * 4.3 + nrm(p.attrs.acceleration) * MOVE.accelTopEnd;
-  const fatigueDrop = 0.18 + (1 - nrm(p.attrs.stamina)) * 0.12;
+  const base = 4.6 + nrm(p.attrs.pace) * 5.5 + nrm(p.attrs.acceleration) * MOVE.accelTopEnd;
+  const fatigueDrop = 0.1 + (1 - nrm(p.attrs.strength)) * 0.45;
   const fatigue = 1 - fatigueDrop * (1 - p.energy);
   return base * fatigue * (1 - p.knock);
 };
-var outfieldAccel = (a) => PHYS.playerAccel * (0.7 + nrm(a.acceleration) * 0.6);
-var turnFloorOf = (a) => clamp01(MOVE.turnFloor + nrm(a.agility) * 0.4);
-var recoverMul = (a) => 0.6 + nrm(a.naturalFitness) * 1;
-var knockResist = (a) => nrm(a.balance);
-var footing = (a) => clamp01(nrm(a.balance) * 0.75 + nrm(a.agility) * 0.25);
-var aerialPower = (a) => nrm(a.jumping) * 0.6 + nrm(a.heading) * 0.3 + nrm(a.balance) * 0.1;
+var outfieldAccel = (a) => PHYS.playerAccel * (0.55 + nrm(a.acceleration) * 0.9);
+var turnFloorOf = (a) => clamp01(MOVE.turnFloor + nrm(a.acceleration) * 0.55);
+var recoverMul = (a) => 0.6 + nrm(a.strength) * 1;
+var knockResist = (a) => nrm(a.strength);
+var footing = (a) => nrm(a.strength);
+var aerialPower = (a) => nrm(a.strength);
 var controlReach = (a, ballSpeed) => {
-  const base = PHYS.controlRadius * (0.7 + nrm(a.firstTouch) * 0.7);
+  const base = PHYS.controlRadius * (0.5 + nrm(a.firstTouch) * 1.1);
   const aerial = ballSpeed > CONTROL.loftSpeed ? aerialPower(a) * CONTROL.aerialReach : 0;
   return base + aerial;
 };
 var miscontrol = (p, ballSpeed) => {
   const a = p.attrs;
-  const skill = nrm(a.firstTouch) * 0.6 + nrm(a.composure) * 0.4;
-  const tired = (1 - p.energy) * (1 - nrm(a.concentration) * 0.6);
+  const skill = nrm(a.firstTouch) * 0.55 + nrm(a.positioning) * 0.45;
+  const tired = (1 - p.energy) * (1 - nrm(a.strength) * 0.6);
   const hard = clamp01(ballSpeed / CONTROL.hardTouchSpeed);
   return clamp01((1 - skill) * CONTROL.miscontrolScale * (0.6 + tired) * (0.7 + hard * 0.8));
 };
-var tacklePower = (a) => nrm(a.tackling) * 0.55 + nrm(a.strength) * 0.3 + nrm(a.positioning) * 0.15;
-var carryPower = (a) => nrm(a.dribbling) * 0.45 + nrm(a.strength) * 0.25 + nrm(a.balance) * 0.2 + nrm(a.agility) * 0.1;
-var tackleRange = (a) => DUEL.range * (0.9 + nrm(a.bravery) * 0.45 + nrm(a.workRate) * 0.25);
-var dribbleSpeedMul = (a) => PHYS.dribbleSpeed * (0.78 + nrm(a.dribbling) * 0.5);
-var spread = (skill, a, baseScale, floor = 0) => {
-  const tech = 1 - nrm(a.technique) * 0.5;
-  const cons = 1 + (1 - nrm(a.consistency)) * 0.4;
-  return (floor + (1 - skill) * baseScale) * tech * cons;
+var tacklePower = (a) => nrm(a.tackling) * 0.9 + nrm(a.strength) * 0.1;
+var carryPower = (a) => nrm(a.dribbling) * 0.7 + nrm(a.strength) * 0.3;
+var tackleRange = (a) => DUEL.range * (0.85 + nrm(a.tackling) * 0.85);
+var dribbleSpeedMul = (a) => PHYS.dribbleSpeed * (0.63 + nrm(a.dribbling) * 0.8);
+var spread = (a, baseScale, floor = 0) => {
+  const dec = 1 - nrm(a.positioning) * 0.25;
+  return (floor + (1 - nrm(a.passing)) * baseScale) * dec;
 };
-var passSpeed = (a) => 12 + nrm(a.passing) * 11;
-var passSpread = (a, pressured = false) => spread(nrm(a.passing), a, 0.28, 0.015) + (pressured ? (1 - nrm(a.composure)) * 0.12 : 0);
-var crossSpeed = (a) => 14 + nrm(a.crossing) * 8;
-var crossSpread = (a, pressured = false) => spread(nrm(a.crossing), a, 0.26) + (pressured ? (1 - nrm(a.composure)) * 0.12 : 0);
+var passSpeed = (a) => 9 + nrm(a.passing) * 17;
+var passSpread = (a, pressured = false) => spread(a, 0.55, 0.01) + (pressured ? (1 - nrm(a.positioning)) * 0.14 : 0);
+var crossSpeed = (a) => 14 + nrm(a.passing) * 8;
+var crossSpread = (a, pressured = false) => spread(a, 0.45) + (pressured ? (1 - nrm(a.positioning)) * 0.14 : 0);
 var shotSpeed = (a) => SHOT.speedBase + nrm(a.strength) * SHOT.speedStrength + nrm(a.finishing) * SHOT.speedFinishing;
 var shotSpread = (a, far, pressured, power = 0) => {
-  const acc = nrm(a.finishing) * (1 - far) + nrm(a.longShots) * far;
-  const calm = (1 - nrm(a.composure)) * (pressured ? 0.2 : 0.08);
-  const flairTrim = nrm(a.flair) * (1 - far) * 0.1;
-  const powerCost = power * (1 - nrm(a.technique)) * SHOT.powerSpread;
-  const tech = 1 - nrm(a.technique) * SHOT.spreadTech;
-  const cons = 1 + (1 - nrm(a.consistency)) * SHOT.spreadCons;
-  const base = (SHOT.spreadFloor + (1 - acc) * SHOT.spreadScale) * tech * cons;
+  const acc = nrm(a.finishing);
+  const calm = (1 - nrm(a.positioning)) * (pressured ? 0.3 : 0.18);
+  const flairTrim = nrm(a.dribbling) * (1 - far) * 0.35;
+  const powerCost = power * (1 - nrm(a.finishing)) * SHOT.powerSpread;
+  const base = SHOT.spreadFloor + (1 - acc) * SHOT.spreadScale;
   return Math.max(0.02, base - flairTrim + calm + powerCost);
 };
-var shootRangeOf = (a, base) => (
-  // flair levanta a AMBIÇÃO: o ousado arrisca o petardo de longe que o sóbrio nem
-  // cogita (a precisão de longe ainda vem de longShots no shotSpread).
-  base * (0.7 + nrm(a.finishing) * 0.5 + nrm(a.longShots) * 0.5 + nrm(a.flair) * 0.2)
-);
-var chaseLead = (a) => AI.chaseLead * (0.6 + nrm(a.anticipation) * 0.8) * (0.85 + nrm(a.acceleration) * 0.3);
-var markPull = (a) => clamp01(nrm(a.marking) * 0.8 + nrm(a.anticipation) * 0.2);
-var shapeMul = (a) => 0.7 + nrm(a.teamwork) * 0.6;
-var offBallAdvance = (a) => 0.6 + nrm(a.offTheBall) * 0.8;
-var holdMax = (a) => AI.maxHold * (0.7 + nrm(a.decisions) * 0.6) * (1 - nrm(a.reflexes) * 0.4);
-var flairSpin = (a) => 0.4 + nrm(a.flair) * 0.6;
+var shootRangeOf = (a, base) => base * (0.7 + nrm(a.finishing) * 1 + nrm(a.dribbling) * 0.4);
+var chaseLead = (a) => AI.chaseLead * (0.5 + nrm(a.positioning) * 1) * (0.8 + nrm(a.acceleration) * 0.4);
+var markPull = (a) => clamp01(nrm(a.tackling) * 0.8 + nrm(a.positioning) * 0.2);
+var shapeMul = (a) => 0.6 + nrm(a.positioning) * 0.8;
+var offBallAdvance = (a) => 0.5 + nrm(a.positioning) * 1;
+var holdMax = (a) => AI.maxHold * (1.6 - nrm(a.positioning) * 1.2);
+var flairSpin = (a) => 0.4 + nrm(a.dribbling) * 0.6;
 var gkMaxSpeed = (p) => {
   const a = p.attrs;
-  const base = 5.2 + nrm(a.agility) * 2.2 + nrm(a.acceleration) * 1.8;
-  const fatigueDrop = 0.18 + (1 - nrm(a.stamina)) * 0.12;
+  const base = 5.2 + nrm(a.acceleration) * 2.5 + nrm(a.goalkeeping) * 1.5;
+  const fatigueDrop = 0.1 + (1 - nrm(a.strength)) * 0.45;
   const fatigue = 1 - fatigueDrop * (1 - p.energy);
   return base * fatigue;
 };
-var gkReach = (a) => GK.reachBase + nrm(a.reflexes) * GK.reachReflex + nrm(a.agility) * GK.reachAgility;
-var gkSaveBase = (a) => nrm(a.goalkeeping) * 0.36 + nrm(a.reflexes) * 0.36 + nrm(a.handling) * 0.1 + nrm(a.positioning) * 0.18;
+var gkReach = (a) => GK.reachBase + nrm(a.goalkeeping) * (GK.reachReflex + GK.reachAgility);
+var gkSaveBase = (a) => nrm(a.goalkeeping) * 0.85 + nrm(a.positioning) * 0.15;
 var gkHoldChance = (a, speed) => clamp01(
-  GK.holdBase + (nrm(a.handling) * GK.holdSkill + nrm(a.reflexes) * GK.holdReflex) - speed * GK.holdSpeedPen * (1 - nrm(a.handling) * GK.holdSpeedHands)
+  GK.holdBase + nrm(a.goalkeeping) * (GK.holdSkill + GK.holdReflex) - speed * GK.holdSpeedPen * (1.4 - nrm(a.goalkeeping) * GK.holdSpeedHands)
 );
-var gkHoldTime = (a) => GK.holdTime * (1 - nrm(a.reflexes) * 0.6);
-var gkKickSpeed = (a) => GK.kickSpeedBase + nrm(a.kicking) * GK.kickSpeedSkill;
-var gkKickReach = (a) => GK.goalKickReach * (GK.kickReachFloor + nrm(a.kicking) * GK.kickReachSkill);
-var gkDistroQuality = (a) => clamp01(0.2 + nrm(a.decisions) * 0.4 + nrm(a.composure) * 0.2 + nrm(a.vision) * 0.2);
-var gkThrowSpeed = (a) => GK.throwSpeedBase + nrm(a.throwing) * GK.throwSpeedSkill;
+var gkHoldTime = (a) => GK.holdTime * (1 - nrm(a.goalkeeping) * 0.6);
+var gkKickSpeed = (a) => GK.kickSpeedBase + nrm(a.strength) * GK.kickSpeedSkill;
+var gkKickReach = (a) => GK.goalKickReach * (GK.kickReachFloor + nrm(a.strength) * GK.kickReachSkill);
+var gkDistroQuality = (a) => clamp01(0.15 + nrm(a.positioning) * 0.85);
+var gkThrowSpeed = (a) => GK.throwSpeedBase + nrm(a.passing) * GK.throwSpeedSkill;
 var gkDistroSpread = (a, long, pressured) => {
-  const skill = long ? a.kicking : a.throwing;
+  const skill = long ? a.strength : a.passing;
   const base = (1 - nrm(skill)) * (long ? GK.longSpread : GK.shortSpread);
-  const panic = pressured ? (1 - nrm(a.composure)) * GK.panicSpread : 0;
+  const panic = pressured ? (1 - nrm(a.positioning)) * GK.panicSpread : 0;
   return base + panic;
 };
 
@@ -1401,7 +1383,7 @@ var engagement = (s, p) => {
   const anticip = 0.85 + nrm(p.attrs.positioning) * 0.3;
   let e = (1.18 - d / MOVE.engageRange) * anticip;
   if (s.possession && s.possession !== p.team)
-    e *= 0.75 + nrm(p.attrs.workRate) * 0.45 + nrm(p.attrs.aggression) * 0.12;
+    e *= 0.7 + nrm(p.attrs.tackling) * 0.75;
   return clamp(e, MOVE.engageFloor, 1);
 };
 var withNoise = (st, from, to, spread2) => {
@@ -1460,7 +1442,7 @@ var attackTarget = (s, p, fwd, home) => {
   let tx = home.x + fwd * adv * AI.attackPush * urg + bias.x;
   if (p.role !== "GK" && p.id !== s.controllerId) {
     const line = offsideLineFwd(s, p.team, fwd) + AI.offsideSlack;
-    const push = clamp(nrm(p.attrs.offTheBall) * AI.offBallRunDepth * urg, 0, 1);
+    const push = clamp(nrm(p.attrs.positioning) * AI.offBallRunDepth * urg, 0, 1);
     tx = tx * (1 - push) + line * fwd * push;
   }
   const ty = home.y + (ball.pos.y - FIELD.cy) * AI.blockShiftY * pull + bias.y;
@@ -1478,7 +1460,7 @@ var defendTarget = (s, p, home) => {
   let commTight = 1;
   if (p.role === "DEF" || p.role === "MID") {
     const gkc = teamGk(s, p.team);
-    if (gkc) commTight = 1 + nrm(gkc.attrs.communication) * 0.35;
+    if (gkc) commTight = 1 + nrm(gkc.attrs.positioning) * 0.35;
   }
   const m = markPull(p.attrs) * (0.35 + (1 - 0.35) * pull) * AI.markTight * commTight;
   if (m > 1e-3) {
@@ -1488,7 +1470,7 @@ var defendTarget = (s, p, home) => {
   }
   if (p.role === "DEF") {
     const gk = teamGk(s, p.team);
-    const comm = gk ? nrm(gk.attrs.communication) : 0;
+    const comm = gk ? nrm(gk.attrs.positioning) : 0;
     ty = FIELD.cy + (ty - FIELD.cy) * (1 - GK.commandShift * comm);
   }
   const urg = gameUrgency(s, p.team);
@@ -1562,7 +1544,7 @@ var cornerStation = (s, p) => {
     if (p.id === s.controllerId) return p.pos;
     const atkGx = attackingGoalX(dir);
     const into2 = atkGx === 0 ? 1 : -1;
-    if (p.role === "DEF")
+    if (p.role === "DEF" && !cornerUpDefs(s, kt).has(p.id))
       return vec(clamp(FIELD.cx - dir * RESTART.cornerBackHold, 5, FIELD.w - 5), homePos(p, dir).y);
     const slot2 = RESTART.cornerAtkSlots[boxRank(s, p, kt, atkGx)];
     return vec(
@@ -1579,11 +1561,16 @@ var cornerStation = (s, p) => {
     clamp(FIELD.cy + slot.side, GOAL.top - 4, GOAL.bottom + 4)
   );
 };
+var cornerUpDefs = (s, team) => {
+  const defs = s.players.filter((q) => q.team === team && q.role === "DEF" && q.id !== s.controllerId).sort((a, b) => aerialPower(b.attrs) - aerialPower(a.attrs) || a.id - b.id);
+  return new Set(defs.slice(0, RESTART.cornerDefUp).map((q) => q.id));
+};
 var boxRank = (s, p, team, gx) => {
   const goalC = vec(gx, FIELD.cy);
   const isAtk = team === s.restartTeam;
+  const up = isAtk ? cornerUpDefs(s, team) : null;
   const cand = s.players.filter(
-    (q) => q.team === team && q.role !== "GK" && q.id !== s.controllerId && !(isAtk ? q.role === "DEF" : q.role === "FWD")
+    (q) => q.team === team && q.role !== "GK" && q.id !== s.controllerId && !(isAtk ? q.role === "DEF" && !up.has(q.id) : q.role === "FWD")
   );
   const key = (q) => dist(q.pos, goalC) * 1e3 + q.id;
   const rank = cand.filter((q) => key(q) < key(p)).length;
@@ -1598,10 +1585,10 @@ var desiredTarget = (s, p) => {
     const aim = add(ball.pos, scale(ball.vel, GK.anticipation));
     const toGoal = dirTo(aim, goalC);
     const dToGoal = dist(aim, goalC);
-    const sweep = GK.comeOutBase + nrm(p.attrs.oneOnOne) * GK.comeOutSkill;
+    const sweep = GK.comeOutBase + nrm(p.attrs.goalkeeping) * GK.comeOutSkill;
     let comeOut = clamp(dToGoal * sweep, GK.comeOutMin, GK.comeOutMax);
     if (dToGoal < GK.dangerDist) {
-      const cap = s.controllerId !== null && s.players.find((pl) => pl.id === s.controllerId)?.team !== p.team ? GK.dangerComeOut + nrm(p.attrs.oneOnOne) * GK.rushOneOnOne : GK.dangerComeOut;
+      const cap = s.controllerId !== null && s.players.find((pl) => pl.id === s.controllerId)?.team !== p.team ? GK.dangerComeOut + nrm(p.attrs.goalkeeping) * GK.rushOneOnOne : GK.dangerComeOut;
       comeOut = Math.min(comeOut, cap);
     }
     if (s.deadball > 0 && s.restartTeam && s.restartTeam !== p.team)
@@ -1635,9 +1622,9 @@ var bestPass = (s, carrier, fwd) => teammates(s, carrier.team).filter((m) => m.i
   const free = nearestOppDist(s, m);
   const lane = laneClearance(s, carrier.pos, m.pos, carrier.team);
   const runFwd = Math.max(0, m.vel.x * fwd);
-  const optionPull = nrm(m.attrs.offTheBall) * runFwd * AI.offBallOption;
-  const vis = nrm(carrier.attrs.vision);
-  const dec = nrm(carrier.attrs.decisions);
+  const optionPull = nrm(m.attrs.positioning) * runFwd * AI.offBallOption;
+  const vis = nrm(carrier.attrs.positioning);
+  const dec = nrm(carrier.attrs.positioning);
   const risk = forward * Math.max(0, AI.laneSafe - lane) * AI.decisionRisk;
   const score = forward * (0.6 + vis * AI.visionForward) + free * (0.6 + dec * AI.decisionSafe) + Math.min(lane, AI.laneSafe) * AI.laneWeight * (0.6 + vis * AI.visionLane) + optionPull * (0.5 + vis * 0.5) - risk * dec;
   return { m, d, forward, lane, score };
@@ -1788,7 +1775,7 @@ var decideAction = (s, carrier) => {
   }
   const room = forwardSpace(s, carrier, fwd);
   const canCarry = !pressured && room > AI.carryRoom * (1.3 - nrm(carrier.attrs.dribbling) * 0.6);
-  const cone = AI.shootCone * (1.3 - nrm(carrier.attrs.decisions) * 0.6);
+  const cone = AI.shootCone * (1.1 - nrm(carrier.attrs.positioning) * 0.2);
   const central = Math.abs(carrier.pos.y - FIELD.cy) < cone;
   const inShotRange = central && dGoal < shootRangeOf(carrier.attrs, AI.shootRange);
   if (inShotRange && (!canCarry || dGoal < AI.carryShootDist)) {
@@ -1843,7 +1830,7 @@ var decideAction = (s, carrier) => {
     }
     if (best) {
       const wide = Math.abs(carrier.pos.y - FIELD.cy) > FIELD.h * 0.3;
-      const crossFwdGate = AI.crossFwdBase - nrm(carrier.attrs.crossing) * AI.crossFwdSkill;
+      const crossFwdGate = AI.crossFwdBase - nrm(carrier.attrs.passing) * AI.crossFwdSkill;
       const useCross = wide && best.forward > crossFwdGate;
       const speed = useCross ? crossSpeed(carrier.attrs) : passSpeed(carrier.attrs);
       const spr = useCross ? crossSpread(carrier.attrs, pressured) : passSpread(carrier.attrs, pressured);
@@ -1867,6 +1854,8 @@ var decideAction = (s, carrier) => {
 };
 
 // src/sim/engine.ts
+var teamNameOverride = null;
+var teamName = (team) => teamNameOverride ? teamNameOverride[team] : TEAMS[team].name;
 var clamp2 = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 var byId = (s, id) => s.players.find((p) => p.id === id);
 var other = (t) => t === "home" ? "away" : "home";
@@ -1925,7 +1914,7 @@ var createMatch = (rosters) => {
     deadball: 0,
     outOfPlay: 0,
     pendingGoalLineX: null,
-    goalKickWait: 0,
+    restartWait: 0,
     restartTeam: null,
     goalKick: false,
     throwIn: false,
@@ -1955,6 +1944,7 @@ var createMatch = (rosters) => {
     celebration: null,
     banner: null,
     introPause: 0,
+    finalWhistle: 0,
     events: [],
     // seed variando por partida (variedade), mas determinístico DENTRO da partida
     rngState: seedRng(Date.now())
@@ -2102,11 +2092,11 @@ var separate = (s) => {
 };
 var gainReach = (p, ballSpeed, airborne) => {
   if (p.role !== "GK") return controlReach(p.attrs, ballSpeed);
-  const dive = clamp2((ballSpeed - GK.controlSpeed) * GK.diveSpeedScale, 0, GK.diveMax) * (GK.diveReflexFloor + nrm(p.attrs.reflexes) * GK.diveReflexSkill);
-  const aerial = airborne ? nrm(p.attrs.aerialReach) * GK.aerialClaim : 0;
+  const dive = clamp2((ballSpeed - GK.controlSpeed) * GK.diveSpeedScale, 0, GK.diveMax) * (GK.diveReflexFloor + nrm(p.attrs.goalkeeping) * GK.diveReflexSkill);
+  const aerial = airborne ? nrm(p.attrs.goalkeeping) * GK.aerialClaim : 0;
   return gkReach(p.attrs) + dive + aerial;
 };
-var reachHeightOf = (p) => p.role === "GK" ? AIR.gkReachHeight + nrm(p.attrs.aerialReach) * AIR.gkReachAerial : AIR.reachHeight + aerialPower(p.attrs) * AIR.reachAerial;
+var reachHeightOf = (p) => p.role === "GK" ? AIR.gkReachHeight + nrm(p.attrs.goalkeeping) * AIR.gkReachAerial : AIR.reachHeight + aerialPower(p.attrs) * AIR.reachAerial;
 var ballCandidate = (s, team) => {
   const ballSpeed = len(s.ball.vel);
   const airborne = s.ball.z > AIR.groundBand;
@@ -2145,7 +2135,7 @@ var gkChargeFoul = (s, gk) => {
   const att = nearestOpponentToPoint(s, gk.team, gk.pos, GK.chargeDist);
   if (!att) return;
   s.tackleCooldown = DUEL.cooldown;
-  if (rand(s) >= GK.chargeFoulChance * nrm(att.attrs.aggression)) return;
+  if (rand(s) >= GK.chargeFoulChance * 0.5) return;
   s.stats[att.team].fouls++;
   addStoppage(s, STOPPAGE.perFoul);
   s.deadball = DUEL.deadball;
@@ -2161,8 +2151,8 @@ var tryTackle = (s) => {
   const def = nearestOpponentToPoint(s, carrier.team, s.ball.pos, DUEL.range * 1.3);
   if (!def || dist(def.pos, s.ball.pos) > tackleRange(def.attrs)) return;
   s.tackleCooldown = DUEL.cooldown;
-  const beat = nrm(carrier.attrs.dribbling) * 0.6 + nrm(carrier.attrs.agility) * 0.4;
-  const read = nrm(def.attrs.anticipation) * 0.5 + nrm(def.attrs.positioning) * 0.5;
+  const beat = nrm(carrier.attrs.dribbling) * 0.6 + nrm(carrier.attrs.acceleration) * 0.4;
+  const read = nrm(def.attrs.positioning);
   const beatProb = clamp2(DUEL.beatBase + (beat - read) * DUEL.beatSwing, 0, DUEL.beatCap);
   if (rand(s) < beatProb) {
     def.stun = DUEL.beatStun * (1 - footing(def.attrs) * DUEL.beatStunBalance);
@@ -2175,7 +2165,7 @@ var tryTackle = (s) => {
   }
   const defR = tacklePower(def.attrs);
   const attR = carryPower(carrier.attrs);
-  const commit = 1 + nrm(def.attrs.bravery) * DUEL.braveryCommit;
+  const commit = 1 + nrm(def.attrs.tackling) * DUEL.braveryCommit;
   const winProb = clamp2(DUEL.baseWin + (defR - attR) * DUEL.duelSwing * commit, 0.12, 0.92);
   if (rand(s) < winProb) {
     const stagger = DUEL.staggerChance * (1 - footing(carrier.attrs) * 0.6);
@@ -2189,14 +2179,14 @@ var tryTackle = (s) => {
     return;
   }
   const reachOut = clamp2(dist(def.pos, s.ball.pos) / tackleRange(def.attrs), 0, 1);
-  const cleanCut = nrm(def.attrs.positioning) * 0.5 + nrm(def.attrs.anticipation) * 0.5;
-  const foulProb = DUEL.foulBase + nrm(def.attrs.aggression) * DUEL.foulAggr + reachOut * (DUEL.foulOverreach + nrm(def.attrs.bravery) * DUEL.foulBravery) * (1 - cleanCut * DUEL.foulClean);
+  const cleanCut = nrm(def.attrs.positioning);
+  const foulProb = DUEL.foulBase + 0.5 * DUEL.foulAggr + reachOut * (DUEL.foulOverreach + 0.5 * DUEL.foulBravery) * (1 - cleanCut * DUEL.foulClean);
   if (rand(s) < foulProb) commitFoul(s, def, carrier);
 };
 var sendOff = (s, p, reason) => {
   s.stats[p.team].reds++;
   addStoppage(s, STOPPAGE.perCard);
-  addEvent(s, "card", p.team, `\u{1F7E5} ${p.name} (${TEAMS[p.team].name}) \u2014 EXPULSO (${reason})`);
+  addEvent(s, "card", p.team, `\u{1F7E5} ${p.name} (${teamName(p.team)}) \u2014 EXPULSO (${reason})`);
   if (s.controllerId === p.id) s.controllerId = null;
   if (s.lastTouchId === p.id) s.lastTouchId = null;
   if (s.lastPasserId === p.id) s.lastPasserId = null;
@@ -2208,7 +2198,7 @@ var giveYellow = (s, def) => {
   def.yellow = true;
   s.stats[def.team].yellows++;
   addStoppage(s, STOPPAGE.perCard);
-  addEvent(s, "card", def.team, `\u{1F7E8} ${def.name} (${TEAMS[def.team].name}) \u2014 amarelo`);
+  addEvent(s, "card", def.team, `\u{1F7E8} ${def.name} (${teamName(def.team)}) \u2014 amarelo`);
   return "AMARELO";
 };
 var isClearChance = (s, carrier, def) => {
@@ -2231,16 +2221,16 @@ var applyCard = (s, def, penalty, dogso) => {
     if (def.role !== "GK" && def.yellow) return sendOff(s, def, "2\xBA amarelo");
     return giveYellow(s, def);
   }
-  const prob = CARD.base + nrm(def.attrs.aggression) * CARD.aggressionWeight + (penalty ? CARD.penaltyBonus : 0);
+  const prob = CARD.base + 0.5 * CARD.aggressionWeight + (penalty ? CARD.penaltyBonus : 0);
   if (rand(s) >= prob) return null;
-  const redFrac = CARD.straightRedFrac * (1 + nrm(def.attrs.aggression) * CARD.straightRedAggr);
+  const redFrac = CARD.straightRedFrac * (1 + 0.5 * CARD.straightRedAggr);
   if (def.role !== "GK" && (rand(s) < redFrac || def.yellow))
     return sendOff(s, def, def.yellow ? "2\xBA amarelo" : "falta grave");
   return giveYellow(s, def);
 };
-var maybeInjure = (s, def, victim) => {
+var maybeInjure = (s, victim) => {
   if (victim.role === "GK") return;
-  if (rand(s) >= INJURY.foulChance * (1 + nrm(def.attrs.aggression))) return;
+  if (rand(s) >= INJURY.foulChance * 1.5) return;
   const serious = rand(s) < INJURY.seriousFrac;
   const impair = serious ? INJURY.seriousImpair : INJURY.minorImpair;
   victim.knock = Math.min(INJURY.maxImpair, victim.knock + impair);
@@ -2268,19 +2258,19 @@ var commitFoul = (s, def, carrier) => {
       "foul",
       def.team,
       card ?? "VANTAGEM",
-      `Falta de ${def.name} \u2014 vantagem, ${TEAMS[carrier.team].name} segue!`
+      `Falta de ${def.name} \u2014 vantagem, ${teamName(carrier.team)} segue!`
     );
     return;
   }
   carrier.stun = DUEL.foulStun * (1 - knockResist(carrier.attrs) * 0.4);
   s.controllerId = null;
   s.holdTime = 0;
-  maybeInjure(s, def, carrier);
+  maybeInjure(s, carrier);
   if (penalty) return penaltyKick(s, carrier.team, ownGoalX);
   announce(s, "foul", def.team, card ?? "FALTA", `Falta de ${def.name} sobre ${carrier.name}`);
   setupFreeKick(s, carrier.team, { ...carrier.pos });
 };
-var placedKickRating = (p) => nrm(p.attrs.longShots) * 0.5 + nrm(p.attrs.finishing) * 0.3 + nrm(p.attrs.technique) * 0.2;
+var placedKickRating = (p) => nrm(p.attrs.finishing) * 0.8 + nrm(p.attrs.passing) * 0.2;
 var setupFreeKick = (s, team, spot, indirect = false) => {
   const atkGx = attackingGoalX(s.attackDir[team]);
   const kind = freeKickKind(spot, atkGx);
@@ -2351,7 +2341,7 @@ var penaltyKick = (s, team, goalX) => {
   s.offsidePend = null;
   s.indirectFK = false;
   s.indirectTakerId = null;
-  announce(s, "penalty", team, "P\xCANALTI!", `P\xEAnalti para ${TEAMS[team].name}! ${taker.name} vai cobrar`);
+  announce(s, "penalty", team, "P\xCANALTI!", `P\xEAnalti para ${teamName(team)}! ${taker.name} vai cobrar`);
 };
 var isBackPass = (s, gk) => s.lastPasserId !== null && s.lastPasserId !== gk.id && byId(s, s.lastPasserId).team === gk.team;
 var backPassHandle = (s, gk) => {
@@ -2364,7 +2354,7 @@ var backPassHandle = (s, gk) => {
     "foul",
     gk.team,
     "INDIRETO",
-    `${gk.name} pega o recuo com a m\xE3o \u2014 tiro livre indireto para ${TEAMS[opp].name}!`
+    `${gk.name} pega o recuo com a m\xE3o \u2014 tiro livre indireto para ${teamName(opp)}!`
   );
   setupFreeKick(s, opp, { ...s.ball.pos }, true);
 };
@@ -2382,8 +2372,8 @@ var spillBall = (s, gk) => {
   const away = defendingGoalX(dir) === 0 ? 1 : -1;
   const side = gk.pos.y >= FIELD.cy ? 1 : -1;
   const scatter = (rand(s) - 0.5) * 1.6;
-  const bias = nrm(gk.attrs.handling) * GK.spillWide * (Math.PI / 2) * side;
-  const ang = scatter * (1 - nrm(gk.attrs.handling) * GK.spillWide) + bias;
+  const bias = nrm(gk.attrs.goalkeeping) * GK.spillWide * (Math.PI / 2) * side;
+  const ang = scatter * (1 - nrm(gk.attrs.goalkeeping) * GK.spillWide) + bias;
   s.ball.pos = { ...gk.pos };
   s.ball.vel = vec(Math.cos(ang) * away * GK.spillSpeed, Math.sin(ang) * GK.spillSpeed);
   s.ball.spin = 0;
@@ -2418,10 +2408,10 @@ var saveProbability = (s, gk, speed) => {
   if (s.lastShooterId !== null) {
     const near = clamp2((GK.closeShot - dist(byId(s, s.lastShooterId).pos, goalC)) / GK.closeShot, 0, 1);
     p -= near * GK.saveClosePen;
-    p += near * nrm(a.oneOnOne) * GK.oneOnOneBonus;
+    p += near * nrm(a.goalkeeping) * GK.oneOnOneBonus;
   }
   p -= (1 - gk.energy) * GK.saveFatiguePen;
-  p += nrm(a.communication) * GK.commandSave;
+  p += nrm(a.positioning) * GK.commandSave;
   if (s.fkShotTimer > 0) p += FREEKICK.gkSetBonus;
   return clamp2(p, GK.saveFloor, GK.saveCap);
 };
@@ -2480,7 +2470,7 @@ var tryGainLoose = (s) => {
     const onTarget = Math.abs(ballCrossY(s, gx) - FIELD.cy) < GOAL.width / 2;
     if (airborne && !onTarget) {
       const claim = clamp2(
-        GK.claimBase + nrm(a.aerialReach) * GK.claimSkill - speed * GK.claimSpeedPen,
+        GK.claimBase + nrm(a.goalkeeping) * GK.claimSkill - speed * GK.claimSpeedPen,
         GK.claimFloor,
         GK.claimCap
       );
@@ -2488,7 +2478,7 @@ var tryGainLoose = (s) => {
         addEvent(s, "save", cand.team, `${cand.name} sai e abafa o cruzamento!`);
         return rand(s) < gkHoldChance(a, speed) ? gkGrab(s, cand) : spillBall(s, cand);
       }
-      const drop = (1 - nrm(a.aerialReach)) * GK.fumbleScale * GK.aerialDropScale;
+      const drop = (1 - nrm(a.goalkeeping)) * GK.fumbleScale * GK.aerialDropScale;
       if (rand(s) < drop) return spillBall(s, cand);
       s.kickCooldown = 0.3;
       return;
@@ -2496,11 +2486,11 @@ var tryGainLoose = (s) => {
     if (!airborne && speed <= GK.controlSpeed) {
       if (isBackPass(s, cand)) {
         const pressed = nearestOpponentToPoint(s, cand.team, cand.pos, AI.pressureDist) !== null;
-        const panic = GK.backPassPanic * (1 - nrm(a.composure)) * (pressed ? GK.backPassPanicPress : 1);
+        const panic = GK.backPassPanic * (1 - nrm(a.positioning)) * (pressed ? GK.backPassPanicPress : 1);
         if (rand(s) < panic) return backPassHandle(s, cand);
         return controlLoose(s, cand);
       }
-      const fumble = (1 - nrm(a.handling)) * (1 - nrm(a.composure)) * GK.fumbleScale;
+      const fumble = (1 - nrm(a.goalkeeping)) * (1 - nrm(a.positioning)) * GK.fumbleScale;
       if (rand(s) < fumble) return spillBall(s, cand);
       return gkGrab(s, cand);
     }
@@ -2510,7 +2500,7 @@ var tryGainLoose = (s) => {
       addEvent(s, "save", cand.team, `Defesa de ${cand.name}!`);
       return rand(s) < gkHoldChance(a, speed) ? gkGrab(s, cand) : spillBall(s, cand);
     }
-    if (rand(s) < GK.secondChance * nrm(a.reflexes)) {
+    if (rand(s) < GK.secondChance * nrm(a.goalkeeping)) {
       s.stats[cand.team].saves++;
       addEvent(s, "save", cand.team, `${cand.name} espalma no susto!`);
       return spillBall(s, cand);
@@ -2533,7 +2523,7 @@ var tryGainLoose = (s) => {
 };
 var clearUpfield = (s, p) => {
   const ownGoalX = defendingGoalX(s.attackDir[p.team]);
-  if (inPenaltyArea(p.pos, ownGoalX) && rand(s) < AIR.clearBehindChance * (1 - nrm(p.attrs.composure) * AIR.clearBehindComposure)) {
+  if (inPenaltyArea(p.pos, ownGoalX) && rand(s) < AIR.clearBehindChance * (1 - nrm(p.attrs.positioning) * AIR.clearBehindComposure)) {
     const cornerY = p.pos.y < FIELD.cy ? RESTART.cornerInset : FIELD.h - RESTART.cornerInset;
     let d2 = dirTo(p.pos, vec(ownGoalX, cornerY));
     if (len(d2) < 1e-6) d2 = vec(ownGoalX === 0 ? -1 : 1, 0);
@@ -2579,7 +2569,7 @@ var tryHeaderOnGoal = (s, p) => {
   if (incoming <= 0) return false;
   const ah = aerialPower(p.attrs);
   const headChance = clamp2(
-    HEAD.base + ah * HEAD.skill + nrm(p.attrs.composure) * HEAD.composure,
+    HEAD.base + ah * HEAD.skill + nrm(p.attrs.positioning) * HEAD.composure,
     HEAD.floor,
     HEAD.cap
   );
@@ -2587,7 +2577,7 @@ var tryHeaderOnGoal = (s, p) => {
   const goalC = vec(goalX, FIELD.cy);
   let dir = norm(sub(goalC, p.pos));
   if (len(dir) < 1e-6) dir = norm(s.ball.vel);
-  const scat = HEAD.scatter * (1 - nrm(p.attrs.heading) * HEAD.scatterAim);
+  const scat = HEAD.scatter * (1 - nrm(p.attrs.strength) * HEAD.scatterAim);
   const ang = (rand(s) - 0.5) * 2 * scat;
   const c = Math.cos(ang);
   const sn = Math.sin(ang);
@@ -2663,8 +2653,8 @@ var ballPlayerCollisions = (s) => {
     b.pos = add(p.pos, scale(nv, rr));
     s.lastTouchId = p.id;
     const lofted = b.z > AIR.groundBand || speed > CONTROL.loftSpeed;
-    const skill = (lofted ? nrm(p.attrs.heading) * 0.7 + nrm(p.attrs.jumping) * 0.3 : nrm(p.attrs.firstTouch) * 0.6 + nrm(p.attrs.anticipation) * 0.4) + nrm(p.attrs.strength) * COLLIDE.cushionStrength;
-    const brave = nrm(p.attrs.bravery) * clamp2((speed - COLLIDE.minSpeed) / COLLIDE.minSpeed, 0, 1) * COLLIDE.cushionBravery;
+    const skill = (lofted ? nrm(p.attrs.strength) : nrm(p.attrs.firstTouch) * 0.6 + nrm(p.attrs.positioning) * 0.4) + nrm(p.attrs.strength) * COLLIDE.cushionStrength;
+    const brave = nrm(p.attrs.tackling) * clamp2((speed - COLLIDE.minSpeed) / COLLIDE.minSpeed, 0, 1) * COLLIDE.cushionBravery;
     if (rand(s) < COLLIDE.cushionBase + skill * COLLIDE.cushionSkill + brave) {
       b.vel = scale(b.vel, COLLIDE.cushionKeep);
       b.spin = 0;
@@ -2818,24 +2808,27 @@ var placeDeadBall = (s, taker, team, deadball) => {
   s.deadball = deadball;
   s.outOfPlay = 0;
   s.pendingGoalLineX = null;
-  s.goalKickWait = 0;
+  s.restartWait = 0;
   s.fromRestart = true;
   s.offsidePend = null;
   s.indirectFK = false;
   s.indirectTakerId = null;
 };
 var penaltyAreaClear = (s, gx, takerId) => !s.players.some((p) => p.id !== takerId && inPenaltyArea(p.pos, gx));
+var cornerBoxLoaded = (s, gx) => s.players.filter(
+  (p) => p.team === s.restartTeam && p.id !== s.controllerId && inPenaltyArea(p.pos, gx)
+).length >= RESTART.cornerMinInBox;
 var beginGoalLineOut = (s, gx) => {
   s.outOfPlay = RESTART.goalLineOutDelay;
   s.pendingGoalLineX = gx;
   s.controllerId = null;
   s.holdTime = 0;
 };
+var lastTouchTeam = (s) => s.lastTouchId !== null ? byId(s, s.lastTouchId).team : s.possession;
 var restartGoalLine = (s, gx) => {
   const defender = teamDefending(s, gx);
   const attacker = other(defender);
-  const lastTeam = s.lastTouchId !== null ? byId(s, s.lastTouchId).team : s.possession;
-  return lastTeam === defender ? cornerKick(s, attacker, gx) : goalKick(s, defender, gx);
+  return lastTouchTeam(s) === defender ? cornerKick(s, attacker, gx) : goalKick(s, defender, gx);
 };
 var goalKick = (s, team, gx) => {
   const gk = teamGk2(s, team);
@@ -2861,7 +2854,7 @@ var cornerKick = (s, team, gx) => {
   placeDeadBall(s, taker, team, RESTART.cornerDeadball);
   s.corner = true;
   s.stats[team].corners++;
-  announce(s, "corner", team, "ESCANTEIO", `Escanteio para ${TEAMS[team].name}`);
+  announce(s, "corner", team, "ESCANTEIO", `Escanteio para ${teamName(team)}`);
 };
 var dropBall = (s) => {
   const team = s.possession ?? (s.lastTouchId !== null ? byId(s, s.lastTouchId).team : "home");
@@ -2874,13 +2867,13 @@ var dropBall = (s) => {
     "foul",
     null,
     "BOLA AO CH\xC3O",
-    `Jogo parado por les\xE3o \u2014 bola ao ch\xE3o para ${TEAMS[team].name}`
+    `Jogo parado por les\xE3o \u2014 bola ao ch\xE3o para ${teamName(team)}`
   );
 };
 var goalMilestone = (goals) => goals === 2 ? "DOBLETE!" : goals === 3 ? "HAT-TRICK!" : goals >= 4 ? `${goals} GOLS!` : null;
 var goalContext = (scorer, diff) => {
   if (diff === 0) return "EMPATE!";
-  if (diff === 1) return `${TEAMS[scorer].name.toUpperCase()} NA FRENTE!`;
+  if (diff === 1) return `${teamName(scorer).toUpperCase()} NA FRENTE!`;
   if (diff > 1) return "AMPLIA O PLACAR!";
   return "DIMINUI!";
 };
@@ -2898,10 +2891,10 @@ var scoreGoal = (s, conceded, goalX) => {
   const golaco = author !== null && s.lastShotDist >= CELEBRATION.golacoDist;
   const milestone = author ? goalMilestone(author.goals) : null;
   const context = goalContext(scorer, diffBefore + 1);
-  const who = author ? ` ${author.name}!` : "!";
+  const scorerLabel = author ? `${author.name} (${teamName(scorer)})` : teamName(scorer);
   const label = golaco ? "GOLA\xC7O" : "GOL";
   const assistTxt = assist ? ` (assist. ${assist.name})` : "";
-  addEvent(s, "goal", scorer, `\u26BD ${label} ${TEAMS[scorer].of}!${who}${assistTxt}`);
+  addEvent(s, "goal", scorer, `\u26BD ${label}! ${scorerLabel}!${assistTxt}`);
   const into = goalX === 0 ? -1 : 1;
   s.ball.pos = vec(
     goalX + into * GOAL.depth * 0.55,
@@ -2971,7 +2964,20 @@ var stepCelebration = (s, dtReal) => {
     kickoff(s, other(c.team));
   }
 };
-var atNaturalBreak = (s) => s.deadball <= 0 && s.outOfPlay <= 0 && s.fkShotTimer <= 0 && s.ball.z <= AIR.groundBand && Math.abs(s.ball.pos.x - FIELD.cx) <= WHISTLE.neutralHalfWidth;
+var safeRestartBreak = (s) => {
+  if (s.outOfPlay > 0)
+    return s.pendingGoalLineX !== null && lastTouchTeam(s) !== teamDefending(s, s.pendingGoalLineX);
+  if (s.deadball <= 0) return false;
+  if (s.penalty || s.corner) return false;
+  if (s.freeKick && s.fkKind !== "far") return false;
+  if (s.throwIn || s.freeKick) {
+    if (s.restartTeam === null) return true;
+    const goalX = s.attackDir[s.restartTeam] === 1 ? FIELD.w : 0;
+    return Math.abs(s.ball.pos.x - goalX) >= WHISTLE.safeRestartDist;
+  }
+  return true;
+};
+var atNaturalBreak = (s) => safeRestartBreak(s) || s.deadball <= 0 && s.outOfPlay <= 0 && s.fkShotTimer <= 0 && Math.abs(s.ball.pos.x - FIELD.cx) <= WHISTLE.neutralHalfWidth;
 var timeUp = (s, target) => s.time >= target && (atNaturalBreak(s) || s.time >= target + WHISTLE.maxExtraWait);
 var switchSides = (s) => {
   s.half = 2;
@@ -2982,32 +2988,58 @@ var switchSides = (s) => {
   kickoff(s, other(s.firstKickoff));
   announce(s, "half", null, "INTERVALO", "Come\xE7a o 2\xBA tempo \u2014 os times trocam de lado");
 };
+var fenceBall = (s) => {
+  const m = RESTART.goalLineOutMargin;
+  if (s.ball.pos.x < -m || s.ball.pos.x > FIELD.w + m) s.ball.vel.x = 0;
+  if (s.ball.pos.y < -m || s.ball.pos.y > FIELD.h + m) s.ball.vel.y = 0;
+  s.ball.pos.x = clamp2(s.ball.pos.x, -m, FIELD.w + m);
+  s.ball.pos.y = clamp2(s.ball.pos.y, -m, FIELD.h + m);
+};
+var endHalf = (s) => {
+  if (s.half === 1) return switchSides(s);
+  s.status = "over";
+  const r = `${s.score.home} x ${s.score.away}`;
+  addEvent(s, "fulltime", null, `\u{1F3C1} Fim de jogo \u2014 ${teamName("home")} ${r} ${teamName("away")}`);
+};
+var stepFinalWhistle = (s, dt) => {
+  s.finalWhistle -= dt;
+  for (const p of s.players) {
+    p.vel = scale(p.vel, Math.pow(WHISTLE.playerStopDamp, dt));
+    p.pos = add(p.pos, scale(p.vel, dt));
+    clampPos(p);
+    p.ctrlAmt = lerp(p.ctrlAmt, 0, clamp2(MOVE.ctrlEase * dt, 0, 1));
+    p.downAmt = lerp(p.downAmt, p.stun > 0 ? 1 : 0, clamp2(MOVE.downEase * dt, 0, 1));
+  }
+  advanceBallFlight(s, dt);
+  fenceBall(s);
+  if (s.finalWhistle <= 0) endHalf(s);
+};
 var step = (s, dt) => {
   if (s.status === "over" || s.celebration) return;
   for (const p of s.players) p.prevPos = { ...p.pos };
   s.ball.prevPos = { ...s.ball.pos };
   s.ball.prevZ = s.ball.z;
-  s.time += dt * MATCH.clockRate;
-  if (s.half === 1 && timeUp(s, MATCH.halfSeconds + s.stoppage)) {
-    switchSides(s);
+  if (s.finalWhistle > 0) {
+    stepFinalWhistle(s, dt);
     return;
   }
-  if (s.half === 2 && timeUp(s, 2 * MATCH.halfSeconds + s.stoppage)) {
-    s.status = "over";
-    const r = `${s.score.home} x ${s.score.away}`;
-    addEvent(s, "fulltime", null, `\u{1F3C1} Fim de jogo \u2014 Brasil ${r} Argentina`);
+  s.time += dt * MATCH.clockRate;
+  if (timeUp(s, s.half * MATCH.halfSeconds + s.stoppage)) {
+    s.finalWhistle = WHISTLE.stopDuration;
+    s.controllerId = null;
+    s.holdTime = 0;
     return;
   }
   const sec = dt * MATCH.clockRate;
   let stopForInjury = false;
   for (const p of s.players) {
     const speed = len(p.vel);
-    const sta = nrm(p.attrs.stamina);
+    const sta = nrm(p.attrs.strength);
     if (speed > STAMINA.jogSpeed) {
       const intensity = clamp2((speed - STAMINA.jogSpeed) / STAMINA.sprintBand, 0, 1);
       p.energy -= sec * STAMINA.sprintDrain * intensity * (STAMINA.drainBase - sta * STAMINA.drainStamina);
     } else {
-      const depletion = 1 - (1 - p.energy) * STAMINA.recoverFade * (1 - nrm(p.attrs.naturalFitness));
+      const depletion = 1 - (1 - p.energy) * STAMINA.recoverFade * (1 - sta);
       p.energy += sec * STAMINA.recover * recoverMul(p.attrs) * depletion;
     }
     p.energy = clamp2(p.energy, STAMINA.floor, 1);
@@ -3038,9 +3070,15 @@ var step = (s, dt) => {
     s.deadball -= dt;
     if (s.deadball <= 0) s.penalty = false;
     if (s.goalKick && s.deadball <= 0 && s.restartTeam) {
-      s.goalKickWait += dt;
+      s.restartWait += dt;
       const gx = defendingGoalX(s.attackDir[s.restartTeam]);
-      if (s.goalKickWait < RESTART.goalKickMaxWait && !penaltyAreaClear(s, gx, s.controllerId))
+      if (s.restartWait < RESTART.goalKickMaxWait && !penaltyAreaClear(s, gx, s.controllerId))
+        s.deadball = dt;
+    }
+    if (s.corner && s.deadball <= 0 && s.restartTeam) {
+      s.restartWait += dt;
+      const gx = attackingGoalX(s.attackDir[s.restartTeam]);
+      if (s.restartWait < RESTART.cornerMaxWait && !cornerBoxLoaded(s, gx))
         s.deadball = dt;
     }
     for (const p of s.players) {
@@ -3065,11 +3103,7 @@ var step = (s, dt) => {
     for (const p of s.players) advancePlayer(s, p, dt);
     separate(s);
     advanceBallFlight(s, dt);
-    const m = RESTART.goalLineOutMargin;
-    if (s.ball.pos.x < -m || s.ball.pos.x > FIELD.w + m) s.ball.vel.x = 0;
-    if (s.ball.pos.y < -m || s.ball.pos.y > FIELD.h + m) s.ball.vel.y = 0;
-    s.ball.pos.x = clamp2(s.ball.pos.x, -m, FIELD.w + m);
-    s.ball.pos.y = clamp2(s.ball.pos.y, -m, FIELD.h + m);
+    fenceBall(s);
     if (s.outOfPlay <= 0) {
       restartGoalLine(s, s.pendingGoalLineX ?? 0);
       s.pendingGoalLineX = null;
@@ -3109,7 +3143,7 @@ var step = (s, dt) => {
         const pp = perp(dir);
         const toCorner = (action.target.y - s.ball.pos.y) * pp.y + (action.target.x - s.ball.pos.x) * pp.x;
         const aimSign = toCorner >= 0 ? 1 : -1;
-        const bias = SHOT.spinAimBias * nrm(carrier.attrs.composure);
+        const bias = SHOT.spinAimBias * (0.75 + nrm(carrier.attrs.positioning) * 0.25);
         s.ball.spin = ((1 - bias) * (rand(s) - 0.5) * 2 + bias * aimSign) * spinMax;
       } else {
         s.ball.spin = (rand(s) - 0.5) * 2 * spinMax;
@@ -3122,7 +3156,7 @@ var step = (s, dt) => {
         if (s.freeKick) s.fkShotTimer = FREEKICK.shotWindow;
         s.lastShotDist = dist(carrier.pos, vec(attackingGoalX(s.attackDir[carrier.team]), FIELD.cy));
         if (!action.loft) {
-          const compose = nrm(carrier.attrs.finishing) * 0.5 + nrm(carrier.attrs.composure) * 0.5;
+          const compose = nrm(carrier.attrs.finishing) * 0.5 + nrm(carrier.attrs.positioning) * 0.5;
           const pressuredShot = nearestOpponentToPoint(s, carrier.team, carrier.pos, AI.pressureDist) !== null;
           const skyP = SHOT.skyBase * (1 - compose) * (pressuredShot ? SHOT.skyPress : 1);
           if (rand(s) < skyP) s.ball.vz = SHOT.skyVzBase + rand(s) * SHOT.skyVzVar;
@@ -3173,43 +3207,14 @@ var step = (s, dt) => {
 var ATTR_KEYS = [
   "pace",
   "acceleration",
-  "agility",
-  "balance",
-  "jumping",
   "strength",
-  "stamina",
-  "naturalFitness",
-  "workRate",
   "dribbling",
   "firstTouch",
-  "technique",
   "passing",
-  "crossing",
   "finishing",
-  "longShots",
-  "heading",
   "tackling",
-  "marking",
-  "vision",
-  "anticipation",
   "positioning",
-  "offTheBall",
-  "decisions",
-  "composure",
-  "concentration",
-  "consistency",
-  "aggression",
-  "bravery",
-  "teamwork",
-  "flair",
-  "goalkeeping",
-  "reflexes",
-  "handling",
-  "aerialReach",
-  "oneOnOne",
-  "kicking",
-  "throwing",
-  "communication"
+  "goalkeeping"
 ];
 var flatAttrs = (value) => {
   const a = {};

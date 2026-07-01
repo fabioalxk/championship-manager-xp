@@ -4,6 +4,8 @@ import { enterNode } from '../game/run'
 import { MAP_WIDTH, STAGE_COUNT } from '../game/runGen'
 import { ALL_CLUBS } from '../game/worldcup'
 import { ClubBadge } from '../ui/ClubBadge'
+import { FlagIcon, GymIcon, MarketIcon, ShieldIcon, TrophyIcon } from './MapIcons'
+import type { MapIconProps } from './MapIcons'
 import type { RunApi } from './useRun'
 
 /** Deslocamento lateral pseudo-aleatório (determinístico pelo id) — evita grade perfeita. */
@@ -47,7 +49,12 @@ const xOf = (node: RunNode): number => {
   return 14 + frac * 72 + jitter(node.id)
 }
 
-const KIND_ICON: Record<string, string> = { market: '💰', gym: '🏋️', boss: '🏆' }
+/** Emblema SVG de cada tipo de nó de evento (desenhados em MapIcons.tsx). */
+const KIND_ART: Record<string, (p: MapIconProps) => JSX.Element> = {
+  market: MarketIcon,
+  gym: GymIcon,
+  boss: TrophyIcon,
+}
 const KIND_LABEL: Record<string, string> = {
   match: 'Partida',
   market: 'Mercado',
@@ -55,11 +62,11 @@ const KIND_LABEL: Record<string, string> = {
   boss: 'CHEFÃO',
 }
 /** Legenda inferior do mapa. */
-const LEGEND: Array<{ kind: string; icon: string; label: string }> = [
-  { kind: 'match', icon: '🛡️', label: 'Partida' },
-  { kind: 'gym', icon: '🏋️', label: 'Academia' },
-  { kind: 'market', icon: '💰', label: 'Mercado' },
-  { kind: 'boss', icon: '🏆', label: 'Chefão' },
+const LEGEND: Array<{ kind: string; Icon: (p: MapIconProps) => JSX.Element; label: string }> = [
+  { kind: 'match', Icon: ShieldIcon, label: 'Partida' },
+  { kind: 'gym', Icon: GymIcon, label: 'Academia' },
+  { kind: 'market', Icon: MarketIcon, label: 'Mercado' },
+  { kind: 'boss', Icon: TrophyIcon, label: 'Chefão' },
 ]
 
 type NodeStatus = 'cleared' | 'available' | 'locked'
@@ -84,6 +91,7 @@ function NodeButton({
     : club
       ? club.name
       : KIND_LABEL[node.kind]
+  const Art = KIND_ART[node.kind]
   return (
     <button
       className={`rq-node rq-node-${node.kind} rq-node-${status}`}
@@ -92,14 +100,23 @@ function NodeButton({
       disabled={status !== 'available'}
       title={`${KIND_LABEL[node.kind]}${club ? ' · ' + club.name : ''}`}
     >
-      <span className="rq-node-ring" aria-hidden />
-      <span className="rq-node-badge">
-        {club ? (
-          <ClubBadge club={club} size={isBoss ? 42 : 32} />
-        ) : (
-          <span className="rq-node-icon">{KIND_ICON[node.kind]}</span>
-        )}
-      </span>
+      {club ? (
+        <>
+          <span className="rq-node-ring" aria-hidden />
+          <span className="rq-node-badge">
+            <ClubBadge club={club} size={isBoss ? 42 : 32} />
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="rq-node-halo" aria-hidden />
+          <span className="rq-node-orbit" aria-hidden />
+          <span className="rq-node-art">
+            <Art size={isBoss ? 54 : 48} />
+          </span>
+          <span className="rq-node-ground" aria-hidden />
+        </>
+      )}
       {status === 'cleared' && <span className="rq-node-check">✓</span>}
       <span className={`rq-node-cap${isBoss ? ' rq-node-cap-boss' : ''}`}>{cap}</span>
     </button>
@@ -140,7 +157,13 @@ export default function MapView({ state, act }: { state: RunState; act: RunApi['
         <span className="rq-map-bar-stage">
           Fase <b>{Math.min(state.stage + 1, STAGE_COUNT + 1)}</b> de {STAGE_COUNT + 1}
         </span>
-        <span className="rq-map-bar-coins">💰 {state.coins}</span>
+        {/* moedas já ficam no cabeçalho — aqui entra o progresso da jornada */}
+        <div className="rq-map-progress" aria-hidden>
+          <div
+            className="rq-map-progress-fill"
+            style={{ width: `${Math.min(100, (state.stage / (STAGE_COUNT + 1)) * 100)}%` }}
+          />
+        </div>
       </div>
 
       <div className="rq-map-scroll" ref={scrollRef}>
@@ -206,7 +229,9 @@ export default function MapView({ state, act }: { state: RunState; act: RunApi['
           style={{ left: `${START_X}%`, top: `${START_Y}%` }}
         >
           <span className="rq-start-cap">Início</span>
-          <span className="rq-start-badge">🏁</span>
+          <span className="rq-start-badge">
+            <FlagIcon size={42} />
+          </span>
         </div>
         </div>
       </div>
@@ -214,7 +239,7 @@ export default function MapView({ state, act }: { state: RunState; act: RunApi['
       <div className="rq-map-legend">
         {LEGEND.map((l) => (
           <span key={l.kind} className={`rq-legend-item rq-legend-${l.kind}`}>
-            <span className="rq-legend-dot">{l.icon}</span>
+            <l.Icon size={16} className="rq-legend-ico" />
             {l.label}
           </span>
         ))}

@@ -9,14 +9,15 @@ import type {
 } from './sim/types'
 import type { Rosters } from './sim/formation'
 import { MATCH, PHYS } from './sim/constants'
-import { createMatch, step, stepCelebration } from './sim/engine'
+import { createMatch, setMatchTeamNames, step, stepCelebration } from './sim/engine'
 import { drawMatch, setMatchKits } from './render/renderer'
-import { goalRoar } from './sfx/crowd'
+import { goalRoar, refWhistle } from './sfx/crowd'
 
-/** Configuração opcional da partida (modo carreira): elencos e cores reais. */
+/** Configuração opcional da partida (modo carreira): elencos, cores e nomes reais. */
 export interface MatchSetup {
   rosters?: Rosters
   kits?: Record<'home' | 'away', { shirt: string; text: string }>
+  names?: Record<'home' | 'away', string>
 }
 
 export interface Hud {
@@ -43,7 +44,7 @@ const snapshot = (m: MatchState): Hud => ({
   stoppage: m.stoppage,
   half: m.half,
   status: m.status,
-  events: m.events.slice(-8).reverse(),
+  events: m.events.slice().reverse(),
   stats: { home: m.stats.home, away: m.stats.away },
   celebration: m.celebration,
   banner: m.banner,
@@ -70,10 +71,14 @@ export const useMatchLoop = (
   useEffect(() => void (runningRef.current = running), [running])
   useEffect(() => void (speedRef.current = speed), [speed])
 
-  // cores dos uniformes (carreira) — aplica ao montar e limpa ao desmontar
+  // cores e nomes dos times (carreira) — aplica ao montar e limpa ao desmontar
   useEffect(() => {
     setMatchKits(setup?.kits ?? null)
-    return () => setMatchKits(null)
+    setMatchTeamNames(setup?.names ?? null)
+    return () => {
+      setMatchKits(null)
+      setMatchTeamNames(null)
+    }
   }, [setup])
 
   useEffect(() => {
@@ -88,6 +93,7 @@ export const useMatchLoop = (
     let lastStatus: MatchStatus | '' = ''
     let lastCeleb = false
     let lastBanner = -1
+    let lastWhistling = false
 
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame)
@@ -136,6 +142,12 @@ export const useMatchLoop = (
       const bannerId = m.banner?.id ?? -1
       // dispara o rugido da torcida exatamente no início da comemoração
       if (celeb && !lastCeleb) goalRoar()
+      // apito de fim de tempo: um toque quando o árbitro encerra o lance (a bola
+      // ainda rola um instante) e o apito final quando entra o intervalo/fim.
+      const whistling = m.finalWhistle > 0
+      if (whistling && !lastWhistling) refWhistle('stop')
+      if (!whistling && lastWhistling) refWhistle(m.status === 'over' ? 'full' : 'half')
+      lastWhistling = whistling
       if (
         sec !== lastSec ||
         m.events.length !== lastEvents ||

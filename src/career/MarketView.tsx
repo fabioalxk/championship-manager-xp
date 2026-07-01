@@ -1,6 +1,7 @@
 import type { CareerState } from '../game/types'
 import { fmtMoney, signPlayer, SQUAD_MAX } from '../game/career'
 import { ROLE_LABEL, attrColor } from '../ui/attrDisplay'
+import { PlayerAvatar } from '../ui/PlayerAvatar'
 import type { CareerApi } from './useCareer'
 
 /**
@@ -31,6 +32,7 @@ export default function MarketView({ state, act }: { state: CareerState; act: Ca
               <span className="cm-squad-ovr" style={{ color: attrColor(m.overall) }}>
                 {m.overall}
               </span>
+              <PlayerAvatar teamId={undefined} name={m.name} />
               <span className="cm-market-name">
                 <strong>{m.name}</strong>
                 <small>

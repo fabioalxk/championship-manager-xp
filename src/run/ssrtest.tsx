@@ -5,8 +5,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import NewRun from './NewRun'
 import RunShell from './RunShell'
-import { GameOverModal, VictoryModal } from './RunModals'
-import { newRun, enterNode, quickPlayNode, leaveNode } from '../game/run'
+import { GameOverModal, LifeLostModal, VictoryModal } from './RunModals'
+import { continueAfterDefeat, newRun, enterNode, quickPlayNode, leaveNode } from '../game/run'
 import { ALL_CLUBS } from '../game/worldcup'
 import type { RunApi } from './useRun'
 import type { RunState } from '../game/runTypes'
@@ -31,6 +31,7 @@ const clubId = Object.keys(ALL_CLUBS)[0]
 const state = newRun('SSR', clubId, 4242)
 const mapHtml = renderToStaticMarkup(<RunShell api={apiFor(state)} />)
 assert(mapHtml.includes('💰'), 'Shell deve mostrar as moedas')
+assert(mapHtml.includes('❤️'), 'Shell deve mostrar as vidas no cabeçalho')
 assert(mapHtml.includes('Slay of the CM'), 'Shell deve identificar o modo')
 
 // 3) entra num nó de partida (o próprio RunShell troca pra RunMatchView em tela cheia)
@@ -44,6 +45,10 @@ if (matchNode) {
 // 4) joga até ganhar alguma partida e cair no pop-up de recompensa (3 cartas)
 let guard = 0
 while (state.status !== 'reward' && state.status !== 'gameover' && guard++ < 20) {
+  if (state.status === 'lifelost') {
+    continueAfterDefeat(state)
+    continue
+  }
   const next = state.nodes.find((n) => state.availableNodeIds.includes(n.id) && !n.cleared)
   if (!next) break
   enterNode(state, next.id)
@@ -55,7 +60,8 @@ if (state.status === 'reward') {
   assert((state.pendingReward?.length ?? 0) === 3, 'pop-up de recompensa deve ter 3 cartas')
 }
 
-// 5) modais de fim de jornada
+// 5) modais de vida perdida e fim de jornada
+renderToStaticMarkup(<LifeLostModal state={{ ...state, status: 'lifelost', lives: 1 }} onContinue={() => {}} />)
 renderToStaticMarkup(<GameOverModal state={{ ...state, status: 'gameover' }} onNewRun={() => {}} />)
 renderToStaticMarkup(<VictoryModal state={{ ...state, status: 'victory' }} onNewRun={() => {}} />)
 

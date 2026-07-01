@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ALL_CLUBS } from '../game/worldcup'
-import { benchHasUpgrade } from '../game/run'
+import { benchHasUpgrade, continueAfterDefeat, START_LIVES } from '../game/run'
 import { ClubBadge } from '../ui/ClubBadge'
 import MapView from './MapView'
 import SquadRunView from './SquadRunView'
@@ -8,7 +8,7 @@ import RunMatchView from './RunMatchView'
 import RewardCards from './RewardCards'
 import MarketNodeView from './MarketNodeView'
 import GymNodeView from './GymNodeView'
-import { GameOverModal, VictoryModal } from './RunModals'
+import { GameOverModal, LifeLostModal, VictoryModal } from './RunModals'
 import type { RunApi } from './useRun'
 
 type Tab = 'map' | 'squad'
@@ -34,7 +34,11 @@ export default function RunShell({ api }: { api: RunApi }) {
           </div>
         </div>
         <div className="cm-header-stats">
-          <span title="Moedas">💰 {state.coins}</span>
+          <span className="cm-coin-chip" title="Vidas — dá para perder 1 partida; a 2ª derrota elimina">
+            {'❤️'.repeat(state.lives)}
+            {'🖤'.repeat(Math.max(0, START_LIVES - state.lives))}
+          </span>
+          <span className="cm-coin-chip" title="Moedas">💰 {state.coins}</span>
           <button className="cm-btn cm-btn-ghost cm-btn-sm" onClick={api.reset} title="Recomeçar do zero">
             ⟳
           </button>
@@ -65,6 +69,9 @@ export default function RunShell({ api }: { api: RunApi }) {
       {state.status === 'reward' && <RewardCards state={state} act={act} />}
       {state.status === 'market' && <MarketNodeView state={state} act={act} />}
       {state.status === 'gym' && <GymNodeView state={state} act={act} />}
+      {state.status === 'lifelost' && (
+        <LifeLostModal state={state} onContinue={() => act(continueAfterDefeat)} />
+      )}
       {state.status === 'gameover' && <GameOverModal state={state} onNewRun={api.reset} />}
       {state.status === 'victory' && <VictoryModal state={state} onNewRun={api.reset} />}
     </div>

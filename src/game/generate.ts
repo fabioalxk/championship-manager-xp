@@ -1,7 +1,8 @@
 import type { Attrs, Role } from '../sim/types'
 import { baseAttrs } from '../sim/teams'
-import { applyChaos, type ChaosCfg, type ChaosSource } from '../sim/chaos'
+import { applyChaos, ATTR_FLOOR, type ChaosCfg, type ChaosSource } from '../sim/chaos'
 import type { ClubDef, ClubState, Division, GenPlayer, MarketPlayer } from './types'
+import type { WcPlayer } from './worldcupPlayers'
 import { makeName, FIRST_COUNT, LAST_COUNT } from './names'
 import { overallOf } from './overall'
 import type { Rng } from './random'
@@ -34,10 +35,10 @@ export const PLAYER_BOOST = 5
  * pelos muitos "buracos". Na Série A os craques são bem mais completos/equilibrados.
  */
 const DIVISION_CHAOS: Record<Division, ChaosCfg> = {
-  A: { spread: 1.15, jitter: 7, spikes: 1, spikeBoost: 12, tanks: 1, tankDrop: 12, floor: 8, ceil: 99 },
-  B: { spread: 1.35, jitter: 10, spikes: 2, spikeBoost: 16, tanks: 2, tankDrop: 18, floor: 6, ceil: 99 },
-  C: { spread: 1.55, jitter: 14, spikes: 2, spikeBoost: 22, tanks: 3, tankDrop: 28, floor: 4, ceil: 99 },
-  D: { spread: 1.95, jitter: 20, spikes: 3, spikeBoost: 30, tanks: 5, tankDrop: 44, floor: 3, ceil: 99 },
+  A: { spread: 1.15, jitter: 7, spikes: 1, spikeBoost: 12, tanks: 1, tankDrop: 12, ceil: 99 },
+  B: { spread: 1.35, jitter: 10, spikes: 2, spikeBoost: 16, tanks: 2, tankDrop: 18, ceil: 99 },
+  C: { spread: 1.55, jitter: 14, spikes: 2, spikeBoost: 22, tanks: 3, tankDrop: 28, ceil: 99 },
+  D: { spread: 1.95, jitter: 20, spikes: 3, spikeBoost: 30, tanks: 5, tankDrop: 44, ceil: 99 },
 }
 
 /** Fonte de caos baseada no Rng da carreira (determinística por seed). */
@@ -70,17 +71,20 @@ export const valueOf = (overall: number, age: number): number => {
 
 /**
  * Empurra os atributos de um jogador para um nível-alvo (overall aproximado),
- * preservando o perfil da posição (parte de baseAttrs). Ruído dá variedade.
+ * preservando o perfil da posição (parte de baseAttrs). `signature` sobrepõe o
+ * arquétipo real do jogador (ex.: Vini = pace/drible) — o deslocamento até o
+ * alvo é IGUAL para todos os atributos, então o formato sobrevive à escala.
+ * Ruído dá variedade.
  */
-const scaledAttrs = (role: Role, target: number, rng: Rng): Attrs => {
-  const a = { ...baseAttrs(role) }
+const scaledAttrs = (role: Role, target: number, rng: Rng, signature?: Partial<Attrs>): Attrs => {
+  const a = { ...baseAttrs(role), ...signature }
   // o overall é ~média linear dos atributos: somar `delta` a todos eleva o
   // overall em ~delta. Parte-se do overall REAL da base p/ acertar o alvo.
   const baseOverall = overallOf(role, a)
   const delta = target - baseOverall + rng.gauss() * 3
   for (const k in a) {
     const key = k as keyof Attrs
-    a[key] = Math.max(1, Math.min(99, Math.round(a[key] + delta + rng.gauss() * 3)))
+    a[key] = Math.max(ATTR_FLOOR, Math.min(99, Math.round(a[key] + delta + rng.gauss() * 3)))
   }
   return a
 }
@@ -95,8 +99,8 @@ export const ensureIdAbove = (min: number): void => {
 
 /**
  * Gera um jogador para uma posição num nível-alvo, opcionalmente com caos da
- * divisão. `name` sobrescreve o nome fictício (usado pelas seleções da Copa,
- * que têm elenco com nomes REAIS — só o nome; os atributos continuam gerados).
+ * divisão. `name` sobrescreve o nome fictício e `signature` dá o arquétipo real
+ * de atributos (usados pelas seleções da Copa com elenco REAL).
  */
 export const generatePlayer = (
   role: Role,
@@ -105,9 +109,20 @@ export const generatePlayer = (
   rng: Rng,
   chaos?: ChaosCfg,
   name?: string,
+  signature?: Partial<Attrs>,
 ): GenPlayer => {
-  const scaled = scaledAttrs(role, target, rng)
+  const scaled = scaledAttrs(role, target, rng, signature)
   const attrs = chaos ? applyChaos(scaled, role, chaos, rngChaosSource(rng)) : scaled
+  // jogador REAL (name): reancora o overall no alvo — o caos vira TEXTURA de
+  // atributos (picos/buracos), não loteria de qualidade. Sem isso a hierarquia
+  // real do elenco (Vini > Wendell) se perdia no sorteio do caos.
+  if (name) {
+    const drift = target + rng.gauss() * 2 - overallOf(role, attrs)
+    for (const k in attrs) {
+      const key = k as keyof Attrs
+      attrs[key] = Math.max(ATTR_FLOOR, Math.min(99, Math.round(attrs[key] + drift)))
+    }
+  }
   const overall = overallOf(role, attrs)
   const age = rng.int(17, 34)
   return {
@@ -127,26 +142,31 @@ export const generatePlayer = (
  * com números de camisa únicos. Base compartilhada por `generateSquad` (elenco de
  * divisão) e por qualquer outro modo que precise gerar jogadores em lote (ex.: o
  * modo roguelike gera o elenco inicial e os adversários do mapa com isto).
- * `names` (paralelo a `shape`) sobrescreve o nome de cada posição quando presente
- * — usado pelas seleções da Copa que têm elenco com nomes reais.
+ * `roster` (paralelo a `shape`) traz os jogadores REAIS das seleções da Copa:
+ * nome, delta de qualidade e (quando há arquétipo) assinatura + camisa reais.
+ * Os deltas são CENTRALIZADOS (menos a média do time), então a hierarquia entre
+ * companheiros é a real e a média do elenco fica exatamente no `level`.
  */
 export const generateSquadShaped = (
   shape: Role[],
   level: number,
   chaos: ChaosCfg,
   rng: Rng,
-  names?: (string | undefined)[],
+  roster?: WcPlayer[],
 ): GenPlayer[] => {
-  const used = new Set<number>()
+  const used = new Set<number>(roster?.flatMap((p) => (p.number != null ? [p.number] : [])) ?? [])
   const pickNumber = (): number => {
     let n = rng.int(1, 39)
     while (used.has(n)) n = rng.int(1, 39)
     used.add(n)
     return n
   }
-  return shape.map((role, i) =>
-    generatePlayer(role, level + rng.gauss() * 5, pickNumber(), rng, chaos, names?.[i]),
-  )
+  const meanDelta = roster ? roster.reduce((s, p) => s + p.delta, 0) / roster.length : 0
+  return shape.map((role, i) => {
+    const real = roster?.[i]
+    const target = level + (real ? real.delta - meanDelta : rng.gauss() * 5)
+    return generatePlayer(role, target, real?.number ?? pickNumber(), rng, chaos, real?.name, real?.attrs)
+  })
 }
 
 /** Gera o elenco completo de um clube no nível da sua divisão (+ boost opcional). */

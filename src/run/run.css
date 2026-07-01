@@ -1,10 +1,67 @@
 /* ===== Slay of the CM — mapa e telas específicas da corrida roguelike ===== */
 
-/* ---------- Escolha da seleção (tela inicial) ---------- */
+/* ---------- Tela inicial (title screen) ---------- */
+.rq-title {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+}
+.rq-title-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  pointer-events: none;
+  transform: scale(1.04);
+  animation: rq-bg-drift 26s ease-in-out infinite alternate;
+}
+@keyframes rq-bg-drift {
+  from {
+    transform: scale(1.04) translateY(0);
+  }
+  to {
+    transform: scale(1.1) translateY(-14px);
+  }
+}
+.rq-title-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(90% 70% at 50% 40%, rgba(4, 7, 14, 0.42) 0%, rgba(4, 7, 14, 0.82) 100%),
+    linear-gradient(180deg, rgba(4, 7, 14, 0.7), rgba(4, 7, 14, 0.35) 30%, rgba(4, 7, 14, 0.85));
+}
+.rq-title .cm-newgame-card {
+  position: relative;
+  z-index: 1;
+}
+.rq-title-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: -4px;
+}
+.rq-title-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cm-muted);
+  background: rgba(148, 163, 189, 0.09);
+  border: 1px solid var(--cm-line);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
 .rq-team-grid {
-  max-height: 320px;
+  max-height: 300px;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 2px 4px 2px 2px;
 }
 
 /* ---------- Mapa ---------- */
@@ -17,22 +74,42 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(180deg, var(--cm-panel-2), var(--cm-panel));
+  background: var(--cm-glass), var(--cm-panel);
   border: 1px solid var(--cm-line);
-  border-radius: 12px;
+  border-radius: var(--cm-radius);
   padding: 11px 18px;
   font-weight: 700;
   font-size: 14px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: var(--cm-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.rq-map-bar-stage {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--cm-muted);
 }
 .rq-map-bar-stage b {
   color: var(--cm-gold);
-  font-size: 16px;
+  font-family: var(--cm-font-display);
+  font-size: 17px;
 }
-.rq-map-bar-coins {
-  color: var(--cm-gold);
-  font-weight: 900;
-  letter-spacing: 0.3px;
+/* progresso da jornada (as moedas já aparecem no cabeçalho) */
+.rq-map-progress {
+  flex: 1;
+  max-width: 220px;
+  height: 8px;
+  margin-left: 16px;
+  border-radius: 999px;
+  background: rgba(148, 163, 189, 0.14);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+.rq-map-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cm-gold-2), var(--cm-gold));
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.45);
+  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 /* moldura com SCROLL VERTICAL: o mapa é bem mais alto que a área visível */
 .rq-map-scroll {
@@ -42,18 +119,9 @@
   max-height: 74vh;
   overflow-y: auto;
   overflow-x: hidden;
-  border-radius: 18px;
-  border: 1px solid var(--cm-line);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-  scrollbar-width: thin;
-  scrollbar-color: var(--cm-line) transparent;
-}
-.rq-map-scroll::-webkit-scrollbar {
-  width: 8px;
-}
-.rq-map-scroll::-webkit-scrollbar-thumb {
-  background: var(--cm-line);
-  border-radius: 999px;
+  border-radius: var(--cm-radius-lg);
+  border: 1px solid var(--cm-line-strong);
+  box-shadow: var(--cm-shadow-lg), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 /* conteúdo alto (altura vem inline do componente) — dá espaço vertical de sobra */
 .rq-map {
@@ -75,8 +143,8 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(120% 80% at 50% 42%, transparent 42%, rgba(6, 10, 18, 0.55) 100%),
-    linear-gradient(180deg, rgba(6, 10, 18, 0.5) 0%, transparent 22%, transparent 72%, rgba(6, 10, 18, 0.62) 100%);
+    radial-gradient(120% 80% at 50% 42%, transparent 42%, rgba(4, 7, 14, 0.6) 100%),
+    linear-gradient(180deg, rgba(4, 7, 14, 0.55) 0%, transparent 22%, transparent 72%, rgba(4, 7, 14, 0.66) 100%);
 }
 .rq-map-lines {
   position: absolute;
@@ -87,9 +155,10 @@
 }
 /* pontilhado clássico e limpo (traços curtos, sem animação) */
 .rq-line {
-  stroke: rgba(230, 237, 247, 0.3);
+  stroke: rgba(230, 237, 247, 0.28);
   stroke-width: 0.6;
   stroke-dasharray: 2 2;
+  stroke-linecap: round;
 }
 /* caminho a partir do nó liberado agora, e trilha já percorrida: dourado */
 .rq-line-open,
@@ -97,6 +166,7 @@
   stroke: var(--cm-gold);
   stroke-width: 0.9;
   stroke-dasharray: 2.2 2;
+  filter: drop-shadow(0 0 1.5px rgba(251, 191, 36, 0.55));
 }
 
 .rq-node {
@@ -111,14 +181,20 @@
   display: grid;
   place-items: center;
   z-index: 2;
-  transition: transform 0.12s ease;
+  transition: transform 0.14s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.rq-node:focus-visible {
+  box-shadow: none;
+}
+.rq-node:focus-visible .rq-node-badge {
+  box-shadow: var(--cm-ring);
 }
 /* anel externo decorativo (medalha de 2 tons) */
 .rq-node-ring {
   position: absolute;
   inset: -3px;
   border-radius: 50%;
-  background: conic-gradient(from 210deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.02) 40%, rgba(0, 0, 0, 0.25));
+  background: conic-gradient(from 210deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02) 40%, rgba(0, 0, 0, 0.3));
 }
 .rq-node-badge {
   position: relative;
@@ -127,15 +203,69 @@
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: radial-gradient(circle at 50% 32%, var(--cm-panel-2), var(--cm-panel));
+  background: radial-gradient(circle at 50% 32%, var(--cm-panel-3), var(--cm-panel));
   border: 2.5px solid rgba(148, 163, 189, 0.7);
   overflow: hidden;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
-.rq-node-icon {
-  font-size: 20px;
-  line-height: 1;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+/* ---- nós de evento (academia/mercado): emblema SVG solto, sem círculo ---- */
+.rq-node-art {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  animation: rq-float 3.4s ease-in-out infinite;
+}
+.rq-node-art svg {
+  display: block;
+}
+@keyframes rq-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+/* halo colorido atrás do emblema (a "aura" que substitui o fundo do círculo) */
+.rq-node-halo {
+  position: absolute;
+  inset: -9px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+/* anel orbital tracejado — só gira nos nós clicáveis agora */
+.rq-node-orbit {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 1.5px dashed transparent;
+  pointer-events: none;
+}
+/* sombra elíptica no "chão", ancorando o emblema flutuante no mapa */
+.rq-node-ground {
+  position: absolute;
+  left: 50%;
+  bottom: -3px;
+  width: 34px;
+  height: 8px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.55), transparent 70%);
+  pointer-events: none;
+}
+.rq-node-gym .rq-node-halo {
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.3), transparent 65%);
+}
+.rq-node-gym .rq-node-art svg {
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 7px rgba(56, 189, 248, 0.4));
+}
+.rq-node-market .rq-node-halo {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.28), transparent 65%);
+}
+.rq-node-market .rq-node-art svg {
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 7px rgba(251, 191, 36, 0.35));
 }
 /* legenda flutuante sob os nós especiais/chefão */
 .rq-node-cap {
@@ -149,42 +279,39 @@
   text-transform: uppercase;
   white-space: nowrap;
   color: var(--cm-text);
-  background: rgba(10, 14, 22, 0.72);
-  border: 1px solid var(--cm-line);
-  padding: 1px 6px;
+  background: rgba(6, 10, 18, 0.8);
+  border: 1px solid var(--cm-line-strong);
+  padding: 1.5px 7px;
   border-radius: 999px;
   pointer-events: none;
   max-width: 92px;
   overflow: hidden;
   text-overflow: ellipsis;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
 .rq-node-cap-boss {
   border-color: var(--cm-gold);
   color: var(--cm-gold);
   font-size: 9.5px;
   max-width: 120px;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.25);
 }
 
 /* ---- temas por tipo de nó ---- */
-.rq-node-gym .rq-node-badge {
-  background: radial-gradient(circle at 50% 30%, #123047, #0b1a27);
-  border-color: rgba(56, 189, 248, 0.85);
-}
-.rq-node-market .rq-node-badge {
-  background: radial-gradient(circle at 50% 30%, #3a2f0f, #241c07);
-  border-color: rgba(251, 191, 36, 0.9);
+.rq-node-gym,
+.rq-node-market {
+  width: 56px;
+  height: 56px;
 }
 .rq-node-boss {
   width: 66px;
   height: 66px;
 }
-.rq-node-boss .rq-node-icon {
-  font-size: 30px;
-}
 .rq-node-boss .rq-node-badge {
   border-color: var(--cm-gold);
   background: radial-gradient(circle at 50% 30%, #3a1414, #1a0808);
-  box-shadow: 0 0 18px rgba(220, 38, 38, 0.5), 0 4px 12px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 20px rgba(220, 38, 38, 0.55), 0 5px 14px rgba(0, 0, 0, 0.6);
 }
 .rq-node-boss .rq-node-ring {
   background: conic-gradient(from 0deg, var(--cm-gold), #dc2626, var(--cm-gold), #dc2626, var(--cm-gold));
@@ -200,13 +327,44 @@
 .rq-node-available {
   z-index: 3;
 }
-/* disponível: só um anel dourado estático destacando que dá p/ clicar */
+/* disponível: anel dourado com respiração sutil destacando que dá p/ clicar */
 .rq-node-available .rq-node-badge {
   border-color: var(--cm-gold);
-  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.32), 0 4px 12px rgba(0, 0, 0, 0.55);
+  animation: rq-breathe 2.4s ease-in-out infinite;
+}
+@keyframes rq-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.32), 0 0 14px rgba(251, 191, 36, 0.2),
+      0 4px 12px rgba(0, 0, 0, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(251, 191, 36, 0.18), 0 0 22px rgba(251, 191, 36, 0.34),
+      0 4px 12px rgba(0, 0, 0, 0.55);
+  }
+}
+/* disponível (nós de emblema solto): halo dourado pulsando + anel orbital girando */
+.rq-node-available .rq-node-halo {
+  animation: rq-halo 2.4s ease-in-out infinite;
+}
+.rq-node-available .rq-node-orbit {
+  border-color: rgba(251, 191, 36, 0.75);
+  animation: rq-spin 9s linear infinite;
+}
+@keyframes rq-halo {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.28), 0 0 16px rgba(251, 191, 36, 0.22);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(251, 191, 36, 0.14), 0 0 26px rgba(251, 191, 36, 0.38);
+  }
 }
 .rq-node-available:hover {
-  transform: translate(-50%, -50%) scale(1.12);
+  transform: translate(-50%, -50%) scale(1.14);
+}
+.rq-node-available:hover .rq-node-art svg {
+  filter: drop-shadow(0 4px 7px rgba(0, 0, 0, 0.7)) drop-shadow(0 0 12px rgba(251, 191, 36, 0.55));
 }
 /* concluído: só ganha a borda verde + o ✓; mantém a cor cheia */
 .rq-node-cleared .rq-node-badge {
@@ -231,6 +389,7 @@
   place-items: center;
   border: 2px solid var(--cm-bg);
   z-index: 4;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
 }
 /* ---- ponto de partida (origem dos 3 caminhos) ---- */
 .rq-start-node {
@@ -242,21 +401,19 @@
   gap: 3px;
   z-index: 2;
 }
+/* bandeirada solta (SVG), mesma linguagem dos emblemas dos eventos */
 .rq-start-badge {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
   display: grid;
   place-items: center;
-  font-size: 17px;
-  background: radial-gradient(circle at 50% 32%, var(--cm-panel-2), var(--cm-panel));
-  border: 2.5px solid rgba(148, 163, 189, 0.7);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.55);
 }
-/* enquanto o jogador ainda não andou, o início fica dourado (é o "você está aqui") */
-.rq-start-here .rq-start-badge {
-  border-color: var(--cm-gold);
-  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.32), 0 4px 10px rgba(0, 0, 0, 0.55);
+.rq-start-badge svg {
+  display: block;
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.65));
+}
+/* enquanto o jogador ainda não andou, o início brilha dourado (é o "você está aqui") */
+.rq-start-here .rq-start-badge svg {
+  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 9px rgba(251, 191, 36, 0.55));
+  animation: rq-float 3.4s ease-in-out infinite;
 }
 .rq-start-cap {
   font-size: 9px;
@@ -264,9 +421,9 @@
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--cm-text);
-  background: rgba(10, 14, 22, 0.72);
-  border: 1px solid var(--cm-line);
-  padding: 1px 7px;
+  background: rgba(6, 10, 18, 0.8);
+  border: 1px solid var(--cm-line-strong);
+  padding: 1.5px 8px;
   border-radius: 999px;
 }
 
@@ -281,15 +438,16 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 11px;
+  padding: 4px 12px;
   border-radius: 999px;
   border: 1px solid var(--cm-line);
-  background: var(--cm-panel);
+  background: var(--cm-glass), var(--cm-panel);
   color: var(--cm-muted);
   font-weight: 600;
 }
-.rq-legend-dot {
-  font-size: 13px;
+.rq-legend-ico {
+  display: block;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
 .rq-legend-gym {
   border-color: rgba(56, 189, 248, 0.45);
@@ -301,209 +459,156 @@
   border-color: rgba(220, 38, 38, 0.5);
 }
 
-/* ---------- Escalação (titulares/banco) ---------- */
-.rq-squad .cm-squad-head {
+/* ---------- Escalação (titulares/banco) — 2 colunas, clique-clique-trocou ---------- */
+.rq-squad-simple {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 14px;
+}
+.rq-simple-top {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rq-simple-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--cm-muted);
 }
 .rq-empty {
   font-size: 13px;
   color: var(--cm-muted);
   padding: 10px 6px;
   margin: 0;
-}
-.rq-squad .cm-squad-list ul {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 4px;
-}
-.rq-role-head {
-  padding: 9px 8px 4px;
-  margin-top: 2px;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--cm-muted);
-  border-top: 1px solid var(--cm-line);
-}
-.rq-role-head:first-child {
-  border-top: none;
-  margin-top: 0;
+  line-height: 1.5;
 }
 
-/* linha (titular ou reserva): corpo só mostra detalhe; botão dedicado age */
-.rq-row {
-  display: flex;
-  flex-direction: column;
-  border-radius: 8px;
-  transition: background 0.15s, box-shadow 0.15s, opacity 0.15s;
+.rq-simple-cols {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
 }
-.rq-row-main {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding-right: 6px;
+.rq-simple-swap-ico {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--cm-panel-3), var(--cm-panel-2));
+  border: 1px solid var(--cm-line-strong);
+  color: var(--cm-muted);
+  font-size: 16px;
+  pointer-events: none;
+  z-index: 1;
+  box-shadow: var(--cm-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
-.rq-row-main .cm-squad-row {
-  flex: 1;
+.rq-simple-col {
+  background: var(--cm-glass), var(--cm-panel);
+  border: 1px solid var(--cm-line);
+  border-radius: var(--cm-radius);
+  padding: 12px;
   min-width: 0;
+  box-shadow: var(--cm-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
-.rq-row.is-dim {
-  opacity: 0.42;
-}
-.rq-row.is-armed {
-  background: rgba(251, 191, 36, 0.12);
-  box-shadow: inset 2px 0 0 var(--cm-gold);
-}
-.rq-row.is-target {
-  background: rgba(37, 99, 235, 0.14);
-  box-shadow: inset 2px 0 0 #60a5fa;
-}
-.rq-row.is-target.is-warn {
-  background: rgba(239, 68, 68, 0.16);
-  box-shadow: inset 2px 0 0 var(--cm-red);
-}
-
-.rq-starter,
-.rq-bench {
-  grid-template-columns: 58px 26px 1fr auto 38px 34px !important;
-}
-.rq-tag {
-  font-size: 10px;
-  font-weight: 800;
+.rq-simple-col h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
   text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 6px;
-  text-align: center;
-}
-.rq-tag-starter {
-  background: rgba(34, 197, 94, 0.22);
-  color: #86efac;
-}
-.rq-tag-bench {
-  background: rgba(148, 163, 189, 0.18);
+  letter-spacing: 0.07em;
   color: var(--cm-muted);
 }
-.rq-delta {
-  font-size: 12px;
+.rq-simple-col h3 span {
   font-weight: 800;
-  text-align: center;
+  color: var(--cm-text);
   font-variant-numeric: tabular-nums;
 }
-.rq-delta.up {
-  color: #4ade80;
-}
-.rq-delta.down {
-  color: #f87171;
-}
-
-/* botão de ação da linha: rótulo muda sozinho (Escalar/Banco/Cancelar/Colocar aqui) */
-.rq-act {
-  flex-shrink: 0;
-  white-space: nowrap;
-  padding: 6px 9px;
-  border-radius: 8px;
-  border: 1px solid var(--cm-line);
-  background: transparent;
-  color: var(--cm-muted);
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: filter 0.12s, background 0.12s, border-color 0.12s;
-}
-.rq-act:hover {
-  filter: brightness(1.3);
-}
-.rq-act-place {
-  border-color: var(--cm-gold);
-  background: rgba(251, 191, 36, 0.2);
-  color: var(--cm-gold);
-  animation: rq-pulse 1.4s ease-in-out infinite;
-}
-.rq-act-cancel {
-  border-color: var(--cm-red);
-  color: #fca5a5;
-}
-@keyframes rq-pulse {
-  0%,
-  100% {
-    filter: brightness(1);
-  }
-  50% {
-    filter: brightness(1.4);
-  }
+.rq-simple-col ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 520px;
+  overflow-y: auto;
 }
 
-.rq-hint-tag {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 1px 10px 7px;
-}
-.rq-hint-tag.ok {
-  color: #86efac;
-}
-.rq-hint-tag.warn {
-  color: #fca5a5;
-}
-
-/* barra fixa no topo da lista enquanto uma troca está "armada" */
-.rq-swapbar {
+/* carta de jogador: uma única regra sempre igual — clique num de cada lado pra trocar */
+.rq-card {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
-  border-radius: 10px;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.4);
-}
-.rq-swapbar-num {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
+  padding: 7px 10px;
+  border-radius: 11px;
+  border: 1px solid transparent;
   background: var(--cm-panel-2);
-  font-weight: 800;
-  font-size: 13px;
-  flex-shrink: 0;
-}
-.rq-swapbar-text {
-  flex: 1;
-  font-size: 12.5px;
   color: var(--cm-text);
-  line-height: 1.4;
+  font-family: var(--cm-font);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.1s ease, border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
-.rq-swapbar-text em {
-  color: var(--cm-gold);
-  font-style: normal;
+.rq-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--cm-line-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.rq-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rq-card-info strong {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rq-card-sub {
+  font-size: 11.5px;
+  color: var(--cm-muted);
+}
+.rq-card-ovr {
+  font-family: var(--cm-font-display);
+  font-weight: 800;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.rq-card.is-sel {
+  border-color: var(--cm-gold);
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.2), rgba(251, 191, 36, 0.08));
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.35), 0 4px 14px rgba(251, 191, 36, 0.12);
+}
+.rq-card.is-swap-target {
+  border-color: rgba(74, 222, 128, 0.5);
+  background: rgba(34, 197, 94, 0.1);
+}
+.rq-card.is-swap-target:hover {
+  border-color: #4ade80;
+  background: rgba(34, 197, 94, 0.2);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.3), 0 4px 14px rgba(34, 197, 94, 0.14);
 }
 
-/* ações no painel de detalhe do jogador selecionado */
-.rq-detail-action {
-  margin-bottom: 12px;
-}
-.rq-detail-delta {
-  font-size: 12.5px;
-  color: var(--cm-muted);
-  margin: 0 0 8px;
-}
-.rq-detail-delta strong.up {
-  color: #4ade80;
-}
-.rq-detail-delta strong.down {
-  color: #f87171;
-}
-.rq-warn {
-  font-size: 12px;
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  border-radius: 8px;
-  padding: 7px 10px;
-  margin: 0 0 8px;
+.rq-simple-detail {
+  background: var(--cm-glass), var(--cm-panel);
+  border: 1px solid var(--cm-line);
+  border-radius: var(--cm-radius);
+  padding: 15px;
+  box-shadow: var(--cm-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  animation: cm-rise 0.25s cubic-bezier(0.2, 0.8, 0.3, 1) both;
 }
 
 /* confirmação flutuante após a troca */
@@ -512,74 +617,110 @@
   left: 50%;
   bottom: 84px;
   transform: translateX(-50%);
-  background: #0f1b12;
-  border: 1px solid rgba(34, 197, 94, 0.5);
+  background: rgba(10, 26, 15, 0.95);
+  border: 1px solid rgba(34, 197, 94, 0.55);
   color: #bbf7d0;
-  padding: 10px 16px;
+  padding: 11px 18px;
   border-radius: 999px;
   font-size: 13px;
   font-weight: 700;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  animation: rq-toast-in 0.2s ease-out;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(34, 197, 94, 0.12);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: rq-toast-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
   z-index: 20;
+}
+.rq-toast-warn {
+  background: rgba(36, 16, 16, 0.95);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fca5a5;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px rgba(239, 68, 68, 0.12);
 }
 @keyframes rq-toast-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    transform: translate(-50%, 10px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translate(-50%, 0) scale(1);
   }
 }
 
-@media (max-width: 480px) {
-  .rq-starter,
-  .rq-bench {
-    grid-template-columns: 46px 20px 1fr auto 32px 30px !important;
-    font-size: 12px;
+@media (max-width: 760px) {
+  .rq-simple-cols {
+    grid-template-columns: 1fr;
   }
-  .rq-act {
-    padding: 6px 7px;
-    font-size: 10px;
+  .rq-simple-swap-ico {
+    display: none;
   }
 }
 
 /* ---------- Cartas de recompensa ---------- */
 .rc-modal {
   width: 100%;
-  max-width: 720px;
+  max-width: 740px;
   max-height: calc(100vh - 40px);
   overflow-y: auto;
-  background: var(--cm-panel);
-  border: 1px solid var(--cm-line);
-  border-radius: 16px;
-  padding: 26px;
+  background: linear-gradient(180deg, rgba(22, 34, 58, 0.95), rgba(14, 22, 38, 0.97));
+  border: 1px solid var(--cm-line-strong);
+  border-radius: var(--cm-radius-lg);
+  padding: 28px 26px;
   text-align: center;
+  box-shadow: var(--cm-shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  animation: cm-rise 0.32s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.rc-modal h2 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 800;
 }
 .rc-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 14px;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 .rc-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--cm-panel-2);
-  border: 1px solid var(--cm-line);
-  border-radius: 14px;
+  background:
+    radial-gradient(120% 70% at 50% -10%, rgba(96, 165, 250, 0.1), transparent 55%),
+    var(--cm-glass), var(--cm-panel-2);
+  border: 1px solid var(--cm-line-strong);
+  border-radius: 16px;
   padding: 16px 14px;
   cursor: pointer;
   text-align: left;
   color: var(--cm-text);
-  transition: border-color 0.12s, transform 0.08s;
+  font-family: var(--cm-font);
+  box-shadow: var(--cm-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 0.15s, transform 0.14s cubic-bezier(0.2, 0.8, 0.3, 1), box-shadow 0.15s;
+  animation: rq-deal 0.4s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.rc-card:nth-child(2) {
+  animation-delay: 0.07s;
+}
+.rc-card:nth-child(3) {
+  animation-delay: 0.14s;
+}
+@keyframes rq-deal {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 .rc-card:hover {
   border-color: var(--cm-gold);
-  transform: translateY(-2px);
+  transform: translateY(-4px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 0 24px rgba(251, 191, 36, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .rc-card-head {
   display: flex;
@@ -587,19 +728,28 @@
   align-items: center;
 }
 .rc-card-role {
-  font-size: 11px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.07em;
   color: var(--cm-muted);
-  font-weight: 700;
+  font-weight: 800;
+  background: rgba(148, 163, 189, 0.1);
+  border: 1px solid var(--cm-line);
+  border-radius: 999px;
+  padding: 3px 9px;
 }
 .rc-card-ovr {
-  font-size: 24px;
+  font-family: var(--cm-font-display);
+  font-size: 26px;
   font-weight: 900;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
 }
 .rc-card-name {
+  font-family: var(--cm-font-display);
   font-weight: 800;
-  font-size: 15px;
+  font-size: 15.5px;
+  line-height: 1.2;
 }
 .rc-card-age {
   font-size: 12px;
@@ -609,8 +759,11 @@
 .rc-card-attrs {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   font-size: 12px;
+  margin: 2px 0 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--cm-line);
 }
 .rc-attr-good {
   color: #86efac;
@@ -620,11 +773,19 @@
 }
 .rc-pick-btn {
   margin-top: auto;
+  display: inline-block;
+  text-align: center;
 }
 
 /* ---------- Mercado (nó) ---------- */
 .rq-market {
-  max-width: 700px;
+  max-width: 720px;
+}
+.rq-h2-ico {
+  display: inline-block;
+  vertical-align: -5px;
+  margin-right: 4px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
 .rq-market-cols {
   display: grid;
@@ -634,78 +795,418 @@
   margin-bottom: 16px;
 }
 .rq-market-col h4 {
-  margin: 0 0 8px;
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  font-weight: 800;
   color: var(--cm-muted);
   text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rq-market-col h4::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--cm-line);
 }
 .rq-market-col .cm-market-list {
   max-height: 360px;
   overflow-y: auto;
+  padding-right: 2px;
+}
+/* dentro do modal (colunas estreitas) a linha vira 2 andares:
+   info + preço em cima, botão de ação em faixa cheia embaixo */
+.rq-market .cm-market-row {
+  grid-template-columns: 34px 28px 1fr auto;
+  row-gap: 8px;
+  padding: 10px 12px;
+}
+.rq-market .cm-market-row .cm-btn {
+  grid-column: 1 / -1;
 }
 
 /* ---------- Academia (nó) ---------- */
-.rq-gym {
-  max-width: 700px;
-}
-.rq-gym-cols {
-  display: grid;
-  grid-template-columns: 1fr 1.3fr;
-  gap: 14px;
+/* Modal em COLUNA FLEX: cabeçalho e rodapé (resumo + CTA) sempre visíveis; só o
+   corpo rola por dentro — nada é cortado em nenhuma altura de tela. O 100dvh
+   desconta a barra do navegador no celular (o vh clássico fica de fallback). */
+.cm-modal.rq-gym {
+  max-width: 780px;
+  height: min(680px, calc(100vh - 40px));
+  height: min(680px, calc(100dvh - 40px));
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
   text-align: left;
-  margin-bottom: 12px;
 }
-.rq-gym-players {
-  max-height: 340px;
+
+.rq-gym-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 17px 22px;
+  border-bottom: 1px solid var(--cm-line);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.16), rgba(37, 99, 235, 0));
+}
+.rq-gym-ico {
+  flex: none;
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.28), rgba(37, 99, 235, 0.1));
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+.rq-gym-head h2 {
+  margin: 0;
+  font-size: 21px;
+}
+.rq-gym-head p {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--cm-muted);
+  line-height: 1.4;
+}
+
+.rq-gym-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 268px 1fr;
+}
+
+/* as duas colunas rolam por dentro */
+.rq-gym-players,
+.rq-gym-attrs {
   overflow-y: auto;
 }
+
+/* coluna esquerda: elenco */
+.rq-gym-players {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  border-right: 1px solid var(--cm-line);
+  background: rgba(7, 11, 20, 0.35);
+}
+.rq-gym-player {
+  flex: none;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: var(--cm-text);
+  font-family: var(--cm-font);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+.rq-gym-player:hover:not(:disabled) {
+  background: var(--cm-panel-2);
+}
+.rq-gym-player.active {
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.24), rgba(37, 99, 235, 0.12));
+  border-color: rgba(96, 165, 250, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.rq-gym-player:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.rq-gym-player.active:disabled {
+  opacity: 1;
+}
+.rq-gym-p-id {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rq-gym-p-id strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rq-gym-p-id small {
+  font-size: 11px;
+  color: var(--cm-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rq-gym-p-ovr {
+  font-family: var(--cm-font-display);
+  font-weight: 800;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* coluna direita: grupos de atributos */
+.rq-gym-attrs {
+  padding: 15px 20px 20px;
+}
 .rq-gym-group {
-  margin-bottom: 10px;
+  margin-bottom: 15px;
+}
+.rq-gym-group:last-child {
+  margin-bottom: 0;
 }
 .rq-gym-group h4 {
-  margin: 0 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 9px;
   font-size: 11px;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--cm-muted);
 }
-.rq-gym-chip-row {
+.rq-gym-group h4::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--cm-line);
+}
+.rq-gym-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 7px;
 }
 .rq-chip {
-  border: 1px solid var(--cm-line);
-  background: var(--cm-panel-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--cm-line-strong);
+  background: var(--cm-glass), var(--cm-panel-2);
   color: var(--cm-text);
-  border-radius: 8px;
-  padding: 4px 8px;
-  font-size: 12px;
+  font-family: var(--cm-font);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12.5px;
   cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s, transform 0.1s;
+}
+.rq-chip b {
+  font-variant-numeric: tabular-nums;
+}
+.rq-chip:hover:not(:disabled):not(.active) {
+  border-color: rgba(148, 163, 189, 0.55);
+  transform: translateY(-1px);
 }
 .rq-chip.active {
   border-color: var(--cm-gold);
-  background: rgba(251, 191, 36, 0.14);
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.2), rgba(251, 191, 36, 0.08));
+  box-shadow: 0 0 0 1px var(--cm-gold), 0 4px 14px rgba(251, 191, 36, 0.15);
 }
-.rq-gym-preview {
+.rq-chip:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.rq-chip-gain {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.16);
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+.rq-chip-max {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--cm-gold);
+}
+
+/* rodapé fixo: resumo do treino + botão de ação */
+.rq-gym-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 20px 17px;
+  border-top: 1px solid var(--cm-line);
+  background: rgba(7, 11, 20, 0.6);
+}
+.rq-gym-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   font-size: 14px;
-  margin: 0 0 14px;
+  min-height: 30px;
+}
+.rq-gym-summary-name {
+  font-weight: 700;
+}
+.rq-gym-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cm-muted);
+}
+.rq-gym-delta b {
+  font-variant-numeric: tabular-nums;
+}
+.rq-gym-arrow {
+  color: var(--cm-green);
+  font-weight: 800;
+}
+.rq-gym-ovr-badge {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+.rq-gym-history {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.rq-gym-history-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--cm-muted);
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.rq-gym-done {
+  animation: rq-gym-pop 0.35s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.rq-gym-done-ico {
+  font-size: 18px;
+}
+@keyframes rq-gym-pop {
+  from {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 /* ---------- Fim de jornada ---------- */
 .cm-modal-over {
-  border-color: var(--cm-red);
-  background: radial-gradient(circle at 50% 0%, #2a1414, var(--cm-panel) 70%);
+  border-color: rgba(239, 68, 68, 0.5);
+  background:
+    radial-gradient(130% 100% at 50% -10%, rgba(239, 68, 68, 0.16), transparent 55%),
+    linear-gradient(180deg, rgba(34, 14, 16, 0.95), rgba(14, 22, 38, 0.97));
+  box-shadow: var(--cm-shadow-lg), 0 0 60px rgba(239, 68, 68, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .rq-over-emoji {
   font-size: 56px;
+  filter: drop-shadow(0 6px 18px rgba(239, 68, 68, 0.35));
+  animation: rq-gym-pop 0.5s cubic-bezier(0.3, 1.4, 0.5, 1) both;
 }
 
 @media (max-width: 760px) {
-  .rq-market-cols,
-  .rq-gym-cols {
+  .rq-market-cols {
     grid-template-columns: 1fr;
   }
   .rc-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Academia no celular: o elenco vira uma FAIXA HORIZONTAL de cards em cima
+     (rola pro lado, como uma prateleira) e os atributos ganham a tela toda. */
+  .cm-backdrop:has(.cm-modal.rq-gym) {
+    padding: 8px;
+  }
+  .cm-modal.rq-gym {
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
+  }
+  .rq-gym-head {
+    padding: 13px 16px;
+  }
+  .rq-gym-ico {
+    width: 40px;
+    height: 40px;
+    font-size: 21px;
+    border-radius: 11px;
+  }
+  .rq-gym-head h2 {
+    font-size: 17px;
+  }
+  .rq-gym-head p {
+    font-size: 12px;
+  }
+  .rq-gym-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .rq-gym-players {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 8px;
+    padding: 10px 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--cm-line);
+  }
+  .rq-gym-player {
+    width: 104px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 6px 7px;
+    text-align: center;
+    background: var(--cm-panel-2);
+    border-color: var(--cm-line);
+  }
+  .rq-gym-player.active {
+    border-color: #60a5fa;
+    background: rgba(37, 99, 235, 0.22);
+  }
+  .rq-gym-p-id {
+    align-items: center;
+    width: 100%;
+  }
+  .rq-gym-p-id strong {
+    max-width: 100%;
+    font-size: 12px;
+  }
+  .rq-gym-p-id small {
+    max-width: 100%;
+    font-size: 10px;
+  }
+  .rq-gym-attrs {
+    padding: 12px 14px 14px;
+  }
+  .rq-gym-foot {
+    padding: 10px 14px 13px;
+  }
+  .rq-gym-summary {
+    font-size: 13px;
   }
 }

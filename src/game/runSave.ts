@@ -1,5 +1,6 @@
 import type { RunState } from './runTypes'
 import { ensureIdAbove } from './generate'
+import { START_LIVES } from './run'
 
 const KEY = 'cm-run-save-v1'
 
@@ -27,6 +28,8 @@ export const loadRun = (): RunState | null => {
     const raw = localStorage.getItem(KEY)
     if (!raw) return null
     const state = JSON.parse(raw) as RunState
+    // migração v1 → v2: saves antigos não tinham o sistema de vidas
+    if (typeof state.lives !== 'number') state.lives = START_LIVES
     let maxId = 0
     for (const p of state.squad) maxId = Math.max(maxId, p.id)
     for (const n of state.nodes) for (const p of n.opponent?.squad ?? []) maxId = Math.max(maxId, p.id)

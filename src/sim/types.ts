@@ -20,56 +20,33 @@ export type Dir = 1 | -1
 export type FreeKickKind = 'direct' | 'cross' | 'far'
 
 /**
- * Atributos no estilo Football Manager — escala 0 a 100 (ver atributos.md).
- * TODOS são consumidos pela simulação; as fórmulas vivem em ratings.ts.
+ * Conjunto ENXUTO de atributos (11, era 39) — cada um consumido em VÁRIAS
+ * fórmulas reais de `ratings.ts`/`engine.ts`/`ai.ts`, e cada um com impacto
+ * mensurável (+0.5 gol/partida quando isolado a 100 num time de 50s). Atributos
+ * redundantes ou de efeito fraco foram fundidos no vizinho mais próximo (ex.:
+ * impulsão/fôlego → físico, técnica → passe, visão/decisão → frieza, marcação →
+ * defesa, reflexo/1v1 → goleiro); a agressividade foi REMOVIDA (efeito líquido
+ * ~nulo: ganhava bola mas devolvia em faltas). Nenhuma mecânica sumiu — cada
+ * uma só passou a ler outro atributo. Ver `atributos.md` para o mapa completo.
  */
 export interface Attrs {
   // ----- FÍSICO -----
   pace: number //  velocidade máxima de corrida
-  acceleration: number //  arranque: rapidez até a velocidade máxima
-  agility: number //  mudança de direção (vira sem frear tanto)
-  balance: number //  equilíbrio: resiste a cair/tropeçar no duelo
-  jumping: number //  impulsão: disputa de bola alta/dividida
-  strength: number //  força: duelos, potência do chute
-  stamina: number //  fôlego: ritmo de gasto de energia
-  naturalFitness: number //  recuperação de energia
-  workRate: number //  intensidade sem bola (pressão/marcação)
+  acceleration: number //  arranque/curva (mudar de direção)
+  strength: number //  FÍSICO: duelos, potência do chute, bola alta (impulsão/cabeceio) e fôlego
 
   // ----- TÉCNICO -----
-  dribbling: number //  condução/drible: mantém a bola no duelo
+  dribbling: number //  drible/talento: conduz no duelo + efeito/ousadia no chute (flair)
   firstTouch: number //  domínio: raio de controle + erro de domínio
-  technique: number //  reduz o erro (spread) de passes e chutes
-  passing: number //  passe: velocidade e precisão
-  crossing: number //  cruzamento das pontas
-  finishing: number //  finalização de perto
-  longShots: number //  chute de longe (alcance e precisão)
-  heading: number //  cabeceio / disputa aérea
-  tackling: number //  desarme: ganha a bola no bote
-  marking: number //  marcação: cola no adversário sem bola
+  passing: number //  passe/técnica: velocidade e precisão do passe raso e alçado; refino geral
+  finishing: number //  finalização: mira do chute em qualquer distância + alcance de arriscar
+  tackling: number //  DEFESA: desarme no bote + marcação colada no adversário
 
   // ----- MENTAL -----
-  vision: number //  enxerga/escolhe a melhor opção de passe
-  anticipation: number //  lê a jogada e intercepta antes
-  positioning: number //  posicionamento defensivo / antecipação
-  offTheBall: number //  qualidade das corridas no ataque
-  decisions: number //  quando conduzir, passar ou chutar
-  composure: number //  frieza sob pressão (erra menos)
-  concentration: number //  menos lapsos quando cansado
-  consistency: number //  reduz a variância aleatória das ações
-  aggression: number //  agressividade (faz faltas/cartões)
-  bravery: number //  entra em botes mais arriscados
-  teamwork: number //  mantém o bloco compacto/dá apoio
-  flair: number //  imprevisibilidade: efeito no chute
+  positioning: number //  QI de jogo: posicionamento, antecipação, movimentação, frieza e decisão sob pressão
 
   // ----- GOLEIRO -----
-  goalkeeping: number //  defesa-base (shot stopping)
-  reflexes: number //  reflexo: reação curta + alcance + rebote
-  handling: number //  mãos: segura vs. espalma; evita frango
-  aerialReach: number //  saída aérea: bolas altas/cruzamentos
-  oneOnOne: number //  saída de frente / sweeper (1v1)
-  kicking: number //  tiro de meta / chutão longo
-  throwing: number //  reposição curta (lançamento de mão)
-  communication: number //  comando de área: organiza a defesa
+  goalkeeping: number //  GOLEIRO completo: defesa, reflexo/alcance, rebote e 1v1
 }
 
 export interface Player {
@@ -240,8 +217,10 @@ export interface MatchState {
   outOfPlay: number
   /** linha de fundo (0 ou FIELD.w) por onde a bola saiu — define o reinício pendente */
   pendingGoalLineX: number | null
-  /** tempo (s) já aguardado no tiro de meta pela área esvaziar (teto goalKickMaxWait) */
-  goalKickWait: number
+  /** tempo (s) já aguardado ALÉM do deadball-base pela condição espacial do
+   *  reinício: tiro de meta espera a área ESVAZIAR (teto goalKickMaxWait);
+   *  escanteio espera a área CARREGAR (teto cornerMaxWait) */
+  restartWait: number
   /** time que reinicia a jogada parada (o adversário recua) */
   restartTeam: TeamId | null
   /** o reinício atual é um TIRO DE META → o goleiro chuta longo (chutão), não toca curto */
@@ -319,6 +298,10 @@ export interface MatchState {
    *  intervalo): enquanto > 0 a jogada não corre — o jogo só recomeça quando a
    *  faixa central sai da tela. Contado em tempo de parede pelo loop, não no relógio. */
   introPause: number
+  /** APITO de fim de tempo SOADO: segundos restantes em que a cena ainda "morre"
+   *  (jogadores desaceleram, a bola rola livre, ninguém mais a disputa) antes do
+   *  INTERVALO / FIM DE JOGO de fato. 0 = sem apito pendente. */
+  finalWhistle: number
   events: MatchEvent[]
   /** estado do PRNG determinístico (mulberry32) — replays e debug consistentes */
   rngState: number

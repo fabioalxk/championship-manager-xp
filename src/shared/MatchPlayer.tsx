@@ -7,6 +7,7 @@ import { lineupFor } from '../game/lineup'
 import { resolveKits } from '../game/kits'
 import { ClubBadge, type BadgeClub } from '../ui/ClubBadge'
 import { EventBanner } from '../ui/EventBanner'
+import { MatchHistory } from './MatchHistory'
 
 const SCALE = 7
 
@@ -55,9 +56,13 @@ export default function MatchPlayer({
     [home, away],
   )
 
-  // elencos e cores reais — memoizados p/ não recriar a partida a cada render
+  // elencos, cores e nomes reais — memoizados p/ não recriar a partida a cada render
   const setup = useMemo<MatchSetup>(
-    () => ({ rosters: { home: lineupFor(home.squad), away: lineupFor(away.squad) }, kits }),
+    () => ({
+      rosters: { home: lineupFor(home.squad), away: lineupFor(away.squad) },
+      kits,
+      names: { home: home.name, away: away.name },
+    }),
     [home, away, kits],
   )
 
@@ -78,21 +83,27 @@ export default function MatchPlayer({
   const size = canvasSize(SCALE)
   const over = hud.status === 'over'
 
+  // No intervalo os times trocam de lado no campo (attackDir inverte no motor);
+  // o placar acompanha, mantendo cada time do lado em que seu goleiro está.
+  const swapped = hud.half === 2
+  const left = swapped ? { side: away, goals: hud.away } : { side: home, goals: hud.home }
+  const right = swapped ? { side: home, goals: hud.home } : { side: away, goals: hud.away }
+
   return (
     <div className="cm-match">
       <div className="cm-scoreboard">
         <span className="cm-sb-team">
-          <ClubBadge club={home} size={30} />
-          <span className="cm-sb-name">{home.name}</span>
+          <ClubBadge club={left.side} size={30} />
+          <span className="cm-sb-name">{left.side.name}</span>
         </span>
         <span className="cm-sb-score">
-          {hud.home}
+          {left.goals}
           <small>×</small>
-          {hud.away}
+          {right.goals}
         </span>
         <span className="cm-sb-team cm-sb-team-away">
-          <span className="cm-sb-name">{away.name}</span>
-          <ClubBadge club={away} size={30} />
+          <span className="cm-sb-name">{right.side.name}</span>
+          <ClubBadge club={right.side} size={30} />
         </span>
         <span className="cm-sb-clock">{over ? 'FIM' : fmtClock(hud.time)}</span>
       </div>
@@ -154,6 +165,8 @@ export default function MatchPlayer({
           )}
         </div>
       )}
+
+      <MatchHistory events={hud.events} />
     </div>
   )
 }

@@ -43,7 +43,7 @@ export const AIR = {
    *  numa faixa maior da descida, gerando mais cabeçadas a gol. */
   reachHeight: 3.0,
   /** alcance vertical extra (m) por competência aérea (jumping/heading) */
-  reachAerial: 1.05,
+  reachAerial: 1.5,
   /** altura (m) que o GOLEIRO alcança com as mãos/salto (+ aerialReach) */
   gkReachHeight: 2.85,
   gkReachAerial: 1.1,
@@ -141,17 +141,31 @@ export const MATCH = {
 /**
  * APITO DE FIM DE TEMPO (Lei 7 na prática). Esgotado o tempo (45'/90' + acréscimos),
  * o árbitro NÃO apita no meio de um lance de ataque: ele espera uma PAUSA NATURAL —
- * a bola numa região neutra (meio-campo), rolando no chão, longe das áreas e sem um
- * chute em curso. Só então soa o apito do intervalo / fim de jogo. Um TETO de espera
- * garante que o tempo não se estique para sempre se a bola nunca acalmar.
+ * a bola no meio-campo (o chutão/toque para o meio), um lateral longe do gol, um
+ * tiro de meta... Lances de PERIGO (escanteio, pênalti, falta na entrada da área)
+ * são cobrados antes. E o apito não corta a cena: soa, os jogadores param, a bola
+ * ainda rola livre por um instante — só então entra a faixa de INTERVALO/FIM.
+ * Um TETO de espera garante que o tempo não se estique para sempre.
  */
 export const WHISTLE = {
   /** meia-largura (m) da FAIXA NEUTRA em torno do meio-campo onde o apito é liberado.
    *  17.5 = terço central exato (a bola precisa ter voltado ao meio, longe das áreas). */
   neutralHalfWidth: 17.5,
+  /** distância mínima (m) de um reinício SEM perigo (lateral / falta de recomposição)
+   *  ao gol ATACADO pelo cobrador para o apito ser liberado nele — lateral na quina
+   *  do ataque é quase um escanteio (lance de perigo): cobra-se primeiro. */
+  safeRestartDist: 30,
   /** teto de espera (s de JOGO) por uma pausa natural depois de esgotado o tempo —
-   *  passado isso o árbitro apita de qualquer jeito (não deixa o tempo esticar sem fim). */
-  maxExtraWait: 90,
+   *  passado isso o árbitro apita de qualquer jeito (não deixa o tempo esticar sem
+   *  fim). Com as pausas ampliadas (lateral/tiro de meta contam), raramente é usado. */
+  maxExtraWait: 300,
+  /** APITO soado: por quantos segundos REAIS a cena ainda "morre" — os jogadores
+   *  desaceleram até parar e a bola segue rolando livre — antes da faixa de
+   *  INTERVALO/FIM DE JOGO entrar (nada de corte seco no meio da animação). */
+  stopDuration: 1.6,
+  /** fração da velocidade que um jogador RETÉM por segundo após o apito (freio
+   *  suave até parar — mesmo padrão do atordoamento em `advancePlayer`). */
+  playerStopDamp: 0.05,
 }
 
 /**
@@ -263,13 +277,13 @@ export const CARD = {
   /** chance-base de cartão numa falta */
   base: 0.1,
   /** peso da agressividade na chance de cartão */
-  aggressionWeight: 0.22,
+  aggressionWeight: 0.12,
   /** acréscimo de chance de cartão quando a falta é pênalti (lance claro) */
   penaltyBonus: 0.15,
   /** fração das faltas cartonadas que são VERMELHO direto (falta grave) */
   straightRedFrac: 0.12,
   /** quanto a agressividade do infrator aumenta a chance de vermelho direto */
-  straightRedAggr: 0.8,
+  straightRedAggr: 0.5,
 }
 
 /**
@@ -401,7 +415,7 @@ export const SHOT = {
   /** piso de velocidade do chute (m/s) — toque/colocado sem força */
   speedBase: 16,
   /** parcela da velocidade vinda da FORÇA (potência do chute) */
-  speedStrength: 16,
+  speedStrength: 20,
   /** parcela menor vinda da finalização (técnica de bater firme) */
   speedFinishing: 4,
   /** parcela extra de potência vinda de longShots, só pesando no chute de LONGE */
@@ -411,21 +425,20 @@ export const SHOT = {
   spinAimBias: 0.7,
   /** penalidade de mira por bater FORTE (potência) — quem martela sem técnica
    *  abre o chute; technique tempera essa abertura (0=potência não custa mira) */
-  powerSpread: 0.16,
+  powerSpread: 0.3,
   /** DISPERSÃO da finalização (fonte única, tunável): piso de erro + parcela que
    *  cresce quanto PIOR o finalizador, e o quanto technique/consistency ainda
    *  amplificam o erro. Quanto menores, mais chutes saem enquadrados (mais gols)
    *  e menos o talento separa bons de ruins (a Série D também faz gol). */
-  spreadFloor: 0.04,
-  spreadScale: 0.3,
-  spreadTech: 0.3,
-  spreadCons: 0.24,
+  spreadFloor: 0.02,
+  spreadScale: 0.42,
+  spreadTech: 0.6,
   // --- chute POR CIMA (blazed over) ---
   /** chance-base de um chute SUBIR demais e ir por cima do gol — escalada por
    *  (1 - finalização/frieza): o afobado/tosco manda pra arquibancada. Traz de
    *  volta o "por cima do travessão" e o carimbo na trave (senão todo chute é
    *  rasteiro) e ainda derruba um pouco a conversão (hoje ~3× alta). */
-  skyBase: 0.2,
+  skyBase: 0.03,
   /** multiplicador da chance de subir demais quando o finalizador está PRESSIONADO */
   skyPress: 1.6,
   /** velocidade vertical (m/s) de um chute que sobe demais — piso + parcela aleatória */
@@ -439,11 +452,11 @@ export const SHOT = {
  * (aerialPower) decidem se sai enquadrada; composure firma a têmpora.
  */
 export const HEAD = {
-  /** chance-base de uma cabeçada a gol bem dada (0.60: quando o atacante alcança o
+  /** chance-base de uma cabeçada a gol bem dada (quando o atacante alcança o
    *  cruzamento na área, a cabeçada tende a sair enquadrada — mais gols de cabeça) */
-  base: 0.6,
+  base: 0.75,
   /** peso da competência aérea (jumping/heading) na chance */
-  skill: 0.5,
+  skill: 0.75,
   /** peso da frieza (composure) na chance */
   composure: 0.12,
   /** piso/teto da chance de cabecear no rumo do gol */
@@ -453,12 +466,12 @@ export const HEAD = {
    *  menos a cabeçada; ainda abaixo do chute de pé */
   speedBase: 17,
   /** parcela de velocidade vinda da impulsão/força aérea (m/s) */
-  speedSkill: 9,
+  speedSkill: 11,
   /** dispersão angular máxima da cabeçada (rad). Reduzida (era 0.42) p/ a cabeçada
    *  sair mais ENQUADRADA — sem isso a maioria ia para fora e não virava gol. */
   scatter: 0.16,
   /** quanto o heading aperta a mira (reduz o scatter; 0..1) */
-  scatterAim: 0.6,
+  scatterAim: 0.75,
 }
 
 /**
@@ -489,19 +502,19 @@ export const AI = {
   /** o quanto o bloco do time desliza lateralmente com a bola (0..1) */
   blockShiftY: 0.6,
   /** ATAQUE: empurra o time para frente quando tem a bola (m) */
-  attackPush: 16,
+  attackPush: 19,
   /** folga (m) além do último defensor antes de cair em impedimento */
   offsideSlack: 1.5,
   /** DEFESA: compactação rumo à linha da bola ao defender (0..1) */
   compactX: 0.38,
   /** DEFESA: quão forte a marcação individual cola no adversário (0..1) */
-  markTight: 0.32,
+  markTight: 0.6,
   /** amplitude (m) da tendência posicional individual (variação humana) */
   humanJitter: 1.1,
   /** distância-base ao gol para tentar o chute (m); ajustada pela finalização.
-   *  20: perto o bastante p/ o jogador ENTRAR na área/conduzir antes de bater, em vez
+   *  Perto o bastante p/ o jogador ENTRAR na área/conduzir antes de bater, em vez
    *  de martelar de 30m+ (30 gerava chute só de fora e gols demais). */
-  shootRange: 20,
+  shootRange: 25,
   /** offTheBall: quanto a corrida sobe rumo à linha de impedimento (0..1) */
   offBallRunDepth: 0.35,
   /** desvio lateral máximo (m) em relação ao centro do gol p/ arriscar o chute.
@@ -552,15 +565,15 @@ export const AI = {
   /** velocidade máx (m/s) do passe de recuo — firme mas DOMINÁVEL pelo GK (recuo
    *  de pé, não um chute): abaixo de GK.controlSpeed para cair na regra do recuo */
   recycleSpeed: 11,
-  /** vision: peso extra dado à PROGRESSÃO do passe (quanto enxerga o passe pra frente) */
-  visionForward: 0.9,
-  /** vision: peso extra dado a ENFIAR em lane apertada (vê a janela difícil) */
-  visionLane: 1.0,
+  /** decisions: peso extra dado à PROGRESSÃO do passe (quanto enxerga o passe pra frente) */
+  visionForward: 1.3,
+  /** decisions: peso extra dado a ENFIAR em lane apertada (vê a janela difícil) */
+  visionLane: 1.4,
   /** decisions: bônus de peso ao companheiro LIVRE (jogo seguro do decidido) */
-  decisionSafe: 0.7,
+  decisionSafe: 1.6,
   /** decisions: penalidade por enfiar forte em lane apertada (risco desnecessário) */
-  decisionRisk: 0.12,
-  /** offTheBall do recebedor: peso da CORRIDA (vel à frente) que torna o
+  decisionRisk: 0.35,
+  /** positioning do recebedor: peso da CORRIDA (vel à frente) que torna o
    *  companheiro uma opção de passe preferida (o craque acha quem se movimenta) */
   offBallOption: 0.5,
   /** crossing: progressão (m) exigida para preferir o cruzamento ao passe raso —
@@ -610,7 +623,7 @@ export const MOVE = {
   turnFloor: 0.35,
   /** bônus de velocidade EFETIVA (m/s) por aceleração — nas distâncias curtas da
    *  partida quem arranca melhor passa mais tempo no topo (não só rampa inicial) */
-  accelTopEnd: 0.8,
+  accelTopEnd: 1.2,
   /** taxa (1/s) de suavização do alvo de movimento (low-pass anti-trancos) */
   targetLerp: 11,
   /** histerese: já acomodado, só volta a corrigir além de dz × este fator */
@@ -631,7 +644,7 @@ export const STAMINA = {
   /** dreno = drainBase - stamina·drainStamina (gasta menos quem tem mais fôlego);
    *  faixa suavizada para não somar à queda de ritmo já aplicada em maxSpeed */
   drainBase: 1.25,
-  drainStamina: 0.7,
+  drainStamina: 1.05,
   /** recuperação por segundo de JOGO ao andar/trotar */
   recover: 0.004,
   /** quanto a recuperação MINGUA com a exaustão (× falta de naturalFitness) */
@@ -655,7 +668,7 @@ export const GK = {
   /** fração da distância à bola usada para sair (sweeper-base) */
   comeOutBase: 0.11,
   /** saída extra conforme o atributo oneOnOne */
-  comeOutSkill: 0.1,
+  comeOutSkill: 0.25,
   comeOutMin: 1.3,
   comeOutMax: 7,
   /** bola tão perto do gol → segura a linha para reagir ao chute (m) */
@@ -673,14 +686,14 @@ export const GK = {
 
   // --- alcance / defesa física (itens 37-39) ---
   reachBase: 2.4,
-  reachReflex: 1.0,
+  reachReflex: 1.5,
   reachAgility: 0.7,
   /** extensão do alcance por (vel-controlSpeed) ao voar no chute (m·s/m) */
   diveSpeedScale: 0.05,
   diveMax: 1.6,
   /** o mergulho no chute forte escala com o REFLEXO: piso + parcela de habilidade */
-  diveReflexFloor: 0.7,
-  diveReflexSkill: 0.5,
+  diveReflexFloor: 0.55,
+  diveReflexSkill: 0.9,
   /** bola até esta velocidade = domínio sem disputa (recuo/passe atrás) */
   controlSpeed: 12,
 
@@ -689,28 +702,28 @@ export const GK = {
    *  baixo também ACHATA a diferença entre goleiros: sem isso, a conversão da elite
    *  disparava e a Série D não convertia (goleiros fracos não seguravam o suficiente
    *  para compensar a finalização fraca). */
-  saveBase: 0.07,
+  saveBase: 0.0,
   /** peso da habilidade combinada do GK (reflexo/posicion./agilidade) */
-  saveSkill: 0.09,
+  saveSkill: 0.7,
   /** velocidade de chute sem penalidade (m/s) — abaixo disso é colocado, fácil de defender */
-  saveSpeedFree: 20,
+  saveSpeedFree: 18,
   saveSpeedPen: 0.012,
   /** penalidade por chute no canto (longe do meio do gol) */
-  saveAnglePen: 0.22,
+  saveAnglePen: 0.3,
   /** bônus por estar bem posicionado na hora do chute */
-  savePosBonus: 0.16,
+  savePosBonus: 0.06,
   /** faixa (m) de tolerância do bom posicionamento */
   alignBand: 6,
   /** distância de chute considerada "perto" (menos tempo de reação) (m) */
-  closeShot: 14,
-  saveClosePen: 0.18,
+  closeShot: 16,
+  saveClosePen: 0.3,
   saveFatiguePen: 0.08,
-  saveFloor: 0.12,
-  saveCap: 0.8,
+  saveFloor: 0.08,
+  saveCap: 0.9,
 
   // --- segurar vs. espalmar / erros (itens 17-24) ---
   holdBase: 0.55,
-  holdSkill: 0.34,
+  holdSkill: 0.8,
   holdReflex: 0.14,
   holdSpeedPen: 0.012,
   /** mãos firmes (handling) amortecem a penalidade de segurar o chute FORTE (0..1) */
@@ -721,9 +734,9 @@ export const GK = {
   spillCooldown: 0.25,
   /** chance (× reflexos) de tocar e dar rebote ao falhar a defesa (reduzida de 0.33:
    *  menos "segunda defesa" no rebote, ajudando a conversão a chegar em ~3 gols/jogo) */
-  secondChance: 0.1,
+  secondChance: 0.3,
   /** chance-base de "frango" em bola fácil (× falhas de handling/composure) */
-  fumbleScale: 0.05,
+  fumbleScale: 0.12,
   /** janela protegida para distribuir após defender (s) */
   protectWindow: 0.6,
 
@@ -786,18 +799,18 @@ export const GK = {
    *  goleiro abafa menos cruzamentos, deixando a bola sobrar p/ o cabeceio) */
   claimBase: 0.1,
   /** peso do aerialReach em cravar a bola alta (× nrm aerialReach) */
-  claimSkill: 0.5,
+  claimSkill: 0.6,
   /** penalidade por bola forte ao cravar de primeira (× m/s) */
   claimSpeedPen: 0.01,
   /** piso/teto da chance de cravar o cruzamento */
   claimFloor: 0.15,
   claimCap: 0.9,
   /** bônus de defesa no 1v1/chute de perto conforme oneOnOne */
-  oneOnOneBonus: 0.16,
+  oneOnOneBonus: 0.45,
   /** alcance (m) em que um 1v1 isolado (sem apoio do atacante) ainda premia oneOnOne */
-  oneOnOneRange: 24,
+  oneOnOneRange: 34,
   /** saída extra (m) no perigo iminente p/ ABAFAR o 1v1, escalada por oneOnOne */
-  rushOneOnOne: 3.5,
+  rushOneOnOne: 5.0,
   /** quanto o handling joga o rebote para LONGE do meio do gol (0..1) */
   spillWide: 0.7,
   /** piso/escala do erro aéreo: bola alta cai mais sem aerialReach (× fumbleScale) */
@@ -856,7 +869,7 @@ export const CONTROL = {
   /** escala da chance de errar o primeiro toque na bola solta. REDUZIDA (era 0.22):
    *  menos erros de domínio → os times (sobretudo os fracos) SUSTENTAM mais posse e
    *  chegam mais vezes ao chute, o que é essencial p/ a Série D fazer gols. */
-  miscontrolScale: 0.06,
+  miscontrolScale: 0.12,
   /** velocidade (m/s) acima da qual a bola é "alta/forte" e exige disputa aérea */
   loftSpeed: 18,
   /** alcance extra (m) ganho na bola alta conforme a competência aérea (1.8, era 0.9:
@@ -864,7 +877,7 @@ export const CONTROL = {
   aerialReach: 1.8,
   /** vantagem (m) de distância EFETIVA na dividida aérea conforme jumping/heading
    *  (3.2: o atacante que ataca o cruzamento ganha mais divididas de cabeça na área) */
-  aerialDuelEdge: 3.2,
+  aerialDuelEdge: 4.5,
   /** vantagem (m) EXTRA do atacante na dividida aérea DENTRO da sua área de ataque —
    *  inclina o cruzamento para quem ataca o gol (mais gols de cabeça). Ver ballCandidate. */
   aerialAtkBoxEdge: 3.0,
@@ -905,8 +918,8 @@ export const DUEL = {
    *  beatBase↑ e beatSwing↓ (eram 0.18/0.75) tornam o drible MENOS dependente do
    *  talento: o ataque progride mais, gerando mais chances (ajuda a Série D). */
   beatBase: 0.24,
-  beatSwing: 0.55,
-  beatCap: 0.66,
+  beatSwing: 0.85,
+  beatCap: 0.82,
   /** PASSOU: o defensor mordeu e ficou desequilibrado por um átimo (s) — é o que
    *  abre o espaço de verdade; o bom equilíbrio (balance) encurta essa recuperação */
   beatStun: 0.55,
@@ -918,19 +931,19 @@ export const DUEL = {
   /** folga (× cooldown) antes do próximo bote depois de um drible bem-sucedido */
   beatTackleGap: 3,
   /** chance-base de desarme bem-sucedido por tentativa (reduzida de 0.5) */
-  baseWin: 0.42,
+  baseWin: 0.34,
   /** peso da diferença de poder (desarme×condução) na chance de roubada. REDUZIDO
    *  (era 1.1): o desarme depende MENOS do talento, então o ataque mantém mais a
    *  posse e chega mais ao gol — parte de trazer a Série D a ~3 gols/jogo. */
-  duelSwing: 0.7,
+  duelSwing: 2.4,
   /** vantagem física do ombro a ombro na dividida (diferença de strength, ±1) */
-  strengthEdge: 0.22,
+  strengthEdge: 0.4,
   /** o quanto a bravura torna o bote mais comprometido (ganha mais ao acertar) */
-  braveryCommit: 0.35,
+  braveryCommit: 0.5,
   /** falta no desarme falhado (modelo overreach): piso, peso da agressão, risco
    *  por esticar-se, agravante de bravura e alívio por ler bem o lance (clean) */
   foulBase: 0.1,
-  foulAggr: 0.45,
+  foulAggr: 0.18,
   foulOverreach: 0.3,
   foulBravery: 0.25,
   foulClean: 0.6,
@@ -960,9 +973,9 @@ export const RESTART = {
   /** faixa (m) ALÉM da linha do campo até onde a bola fora rola antes de parar (cabe
    *  no PAD do render para continuar visível, como se batesse no alambrado) */
   goalLineOutMargin: 3,
-  /** bola parada no escanteio — dá tempo dos atacantes CARREGAREM a área e da
-   *  defesa recuar p/ marcar antes da cobrança (s). Curto demais = cruzamento numa
-   *  área vazia; ~2.6s deixa os dois blocos se posicionarem (como num jogo real). */
+  /** tempo-BASE da bola parada no escanteio (s) — dá tempo dos atacantes
+   *  CARREGAREM a área e da defesa recuar p/ marcar. Depois dele a cobrança ainda
+   *  espera a área encher de fato (cornerMinInBox, teto cornerMaxWait). */
   cornerDeadball: 3.2,
   /** bola parada no arremesso lateral (s) — dá tempo de reposicionar, não cobra na hora */
   throwInDeadball: 1.8,
@@ -1005,6 +1018,8 @@ export const RESTART = {
     { depth: 11, side: -1 }, // marca do pênalti
     { depth: 10, side: 5 }, // 2º pau
     { depth: 14, side: 0 }, // entrada da área (rebote/afastamento curto)
+    { depth: 6, side: -6 }, // 1º pau curto (desvio na primeira trave)
+    { depth: 12, side: 4 }, // entre a marca e o 2º pau
   ],
   /** slots da DEFESA no escanteio: marca na ZONA DE QUEDA, GOALSIDE dos atacantes
    *  (~1-2m mais perto do gol que cada alvo do ataque) para DISPUTAR o cabeceio —
@@ -1016,10 +1031,21 @@ export const RESTART = {
     { depth: 9, side: -1 }, // contesta a marca do pênalti
     { depth: 8, side: 5 }, // contesta o 2º pau
     { depth: 3, side: 0 }, // cobre a boca do gol (apoio ao goleiro)
+    { depth: 4, side: -5 }, // contesta o 1º pau curto
+    { depth: 13, side: 2 }, // fecha a entrada da área (rebote)
   ],
   /** profundidade (m), a partir do meio-campo rumo ao PRÓPRIO campo, onde os
    *  zagueiros do time que COBRA o escanteio seguram (proteção ao contra-ataque) */
   cornerBackHold: 20,
+  /** nº de zagueiros do time que COBRA que SOBEM para a área (os melhores no
+   *  jogo aéreo, como os zagueiros altos num jogo real); o resto segura atrás */
+  cornerDefUp: 2,
+  /** mínimo de companheiros (fora o cobrador) DENTRO da grande área para o
+   *  escanteio ser cobrado — ninguém cruza para uma área vazia */
+  cornerMinInBox: 6,
+  /** teto (s) de espera ALÉM do cornerDeadball pela área carregar — evita travar
+   *  a cobrança se alguém ficar preso no caminho */
+  cornerMaxWait: 6,
 }
 
 /**

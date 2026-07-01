@@ -9,8 +9,10 @@ import { bestEleven, squadStrength } from './strength'
 import { quickResult } from './quicksim'
 import { makeRng, mixSeed, type Rng } from './random'
 
-const RUN_VERSION = 1
+const RUN_VERSION = 2
 export const START_COINS = 100
+/** Vidas da run: pode perder 1 partida e continuar; a 2ª derrota elimina. */
+export const START_LIVES = 2
 export const SQUAD_MIN = 11
 export const SQUAD_MAX = 23
 
@@ -60,6 +62,7 @@ export const newRun = (managerName: string, clubId: string, seed: number): RunSt
     squad,
     startingIds: bestEleven(squad).map((p) => p.id),
     coins: START_COINS,
+    lives: START_LIVES,
     stage: 0,
     nodes,
     availableNodeIds: nodes.filter((n) => n.stage === 1).map((n) => n.id),
@@ -116,7 +119,7 @@ const clearNode = (state: RunState, node: RunNode): void => {
 
 const penaltyChance = (finishing: number, composure: number, gk: Attrs): number => {
   const off = (finishing + composure) / 2 / 100
-  const def = (gk.goalkeeping + gk.oneOnOne) / 2 / 100
+  const def = gk.goalkeeping / 100
   return clamp(0.55 + off * 0.4 - def * 0.28, 0.3, 0.95)
 }
 
@@ -134,16 +137,16 @@ const penaltyShootout = (home: GenPlayer[], away: GenPlayer[], rng: Rng): 'home'
   for (let round = 0; round < 5; round++) {
     const ht = homeTakers[round % homeTakers.length]
     const at = awayTakers[round % awayTakers.length]
-    if (rng.next() < penaltyChance(ht.attrs.finishing, ht.attrs.composure, awayGk)) hs++
-    if (rng.next() < penaltyChance(at.attrs.finishing, at.attrs.composure, homeGk)) as_++
+    if (rng.next() < penaltyChance(ht.attrs.finishing, ht.attrs.positioning, awayGk)) hs++
+    if (rng.next() < penaltyChance(at.attrs.finishing, at.attrs.positioning, homeGk)) as_++
   }
   // morte súbita: continua cobrando em pares até desempatar
   let round = 5
   while (hs === as_ && round < 25) {
     const ht = homeTakers[round % homeTakers.length]
     const at = awayTakers[round % awayTakers.length]
-    if (rng.next() < penaltyChance(ht.attrs.finishing, ht.attrs.composure, awayGk)) hs++
-    if (rng.next() < penaltyChance(at.attrs.finishing, at.attrs.composure, homeGk)) as_++
+    if (rng.next() < penaltyChance(ht.attrs.finishing, ht.attrs.positioning, awayGk)) hs++
+    if (rng.next() < penaltyChance(at.attrs.finishing, at.attrs.positioning, homeGk)) as_++
     round++
   }
   return hs >= as_ ? 'home' : 'away'
@@ -152,25 +155,49 @@ const penaltyShootout = (home: GenPlayer[], away: GenPlayer[], rng: Rng): 'home'
 /** Recompensa em moedas por vencer um nó de partida — cresce com a fase. */
 const matchReward = (stage: number, rng: Rng): number => 30 + stage * 8 + rng.int(0, 15)
 
+/** Sufixo de rng por tentativa: um replay após perder uma vida não repete o mesmo resultado. */
+const attemptSalt = (state: RunState): string => `:t${START_LIVES - state.lives}`
+
 /**
- * Resolve o desfecho de uma partida jogada (animada ou rápida): decide o
- * vencedor (empate vai para pênaltis), atualiza moedas/registro e avança o
- * estado da run — vitória gera recompensa (ou o troféu final), derrota elimina.
+ * Resolve o desfecho de uma partida jogada (animada ou rápida) e avança a run:
+ * - vitória: recompensa cheia em moedas + 3 cartas (ou o troféu, no chefão);
+ * - empate: classifica sem brilho — metade das moedas, sem cartas (só o chefão
+ *   exige um campeão e vai para os pênaltis);
+ * - derrota: consome 1 vida; sem vidas restantes, elimina.
  */
 export const finishMatch = (state: RunState, homeGoals: number, awayGoals: number): void => {
   const node = nodeOf(state, state.currentNodeId)
   if (!node || !node.opponent || state.status !== 'match') return
-  const rng = rngForNode(state, node.id)
+  const rng = rngForNode(state, node.id + attemptSalt(state))
+  const oppName = ALL_CLUBS[node.opponent.clubId]?.name ?? node.opponent.clubId
+  const draw = homeGoals === awayGoals
+
+  if (draw && node.kind !== 'boss') {
+    const reward = Math.max(1, Math.round(matchReward(node.stage, rng) / 2))
+    state.coins += reward
+    state.lastMatch = { oppName, homeGoals, awayGoals, won: false, drawn: true, stage: node.stage }
+    log(state, `Empate com o ${oppName} (${homeGoals}×${awayGoals}). Classificado: +${reward} moedas, sem reforço.`)
+    clearNode(state, node)
+    return
+  }
+
   let won = homeGoals > awayGoals
-  if (homeGoals === awayGoals) {
+  if (draw) {
+    // chefão precisa de um campeão: empate decide nos pênaltis
     won = penaltyShootout(startingXI(state), bestEleven(node.opponent.squad), rng) === 'home'
   }
-  const oppName = ALL_CLUBS[node.opponent.clubId]?.name ?? node.opponent.clubId
-  state.lastMatch = { oppName, homeGoals, awayGoals, won, stage: node.stage }
+  state.lastMatch = { oppName, homeGoals, awayGoals, won, drawn: false, stage: node.stage }
 
   if (!won) {
-    log(state, `Eliminado! Derrota para o ${oppName} (${homeGoals}×${awayGoals}).`)
-    state.status = 'gameover'
+    state.lives -= 1
+    if (state.lives <= 0) {
+      log(state, `Eliminado! Derrota para o ${oppName} (${homeGoals}×${awayGoals}) — as vidas acabaram.`)
+      state.status = 'gameover'
+      return
+    }
+    log(state, `Derrota para o ${oppName} (${homeGoals}×${awayGoals}). 💔 Perdeu 1 vida — resta ${state.lives}.`)
+    state.currentNodeId = null
+    state.status = 'lifelost'
     return
   }
 
@@ -190,11 +217,17 @@ export const finishMatch = (state: RunState, homeGoals: number, awayGoals: numbe
   state.status = 'reward'
 }
 
+/** Fecha o aviso de vida perdida e volta ao mapa (o nó perdido continua disponível para revanche). */
+export const continueAfterDefeat = (state: RunState): void => {
+  if (state.status !== 'lifelost') return
+  state.status = 'map'
+}
+
 /** Simula a partida do nó atual instantaneamente (pular/auto-play), sem animação. */
 export const quickPlayNode = (state: RunState): void => {
   const node = nodeOf(state, state.currentNodeId)
   if (!node || !node.opponent) return
-  const rng = rngForNode(state, node.id + ':quick')
+  const rng = rngForNode(state, node.id + ':quick' + attemptSalt(state))
   const home = squadStrength(startingXI(state))
   const away = squadStrength(bestEleven(node.opponent.squad))
   const r = quickResult(home, away, rng)
@@ -305,7 +338,7 @@ export const sellPlayer = (state: RunState, playerId: number): boolean => {
 // ACADEMIA (só dentro de um nó de academia)
 // =====================================================================
 
-/** Bufa MUITO um atributo de um jogador (+20, teto 100) — uso único por nó de academia. */
+/** Bufa MUITO um atributo de um jogador (+20, teto 100) — até 3 usos por nó de academia (60 pontos no total). */
 export const boostAttribute = (state: RunState, playerId: number, attr: keyof Attrs): boolean => {
   if (state.status !== 'gym') return false
   const p = state.squad.find((pl) => pl.id === playerId)
@@ -350,14 +383,16 @@ const autoShop = (state: RunState): void => {
   }
 }
 
-/** Bufa o melhor titular na academia, no atributo mais fraco do seu perfil. */
+/** Usa os 3 melhoramentos da academia no melhor titular, sempre no atributo mais fraco atual. */
 const autoGym = (state: RunState): void => {
   const xi = startingXI(state)
   if (xi.length === 0) return
   const target = [...xi].sort((a, b) => b.overall - a.overall)[0]
   const keys = Object.keys(target.attrs) as (keyof Attrs)[]
-  const weakest = keys.reduce((a, b) => (target.attrs[a] < target.attrs[b] ? a : b))
-  boostAttribute(state, target.id, weakest)
+  for (let i = 0; i < 3; i++) {
+    const weakest = keys.reduce((a, b) => (target.attrs[a] < target.attrs[b] ? a : b))
+    boostAttribute(state, target.id, weakest)
+  }
 }
 
 /** Escolhe a carta de recompensa que MAIS reforça o melhor XI possível (encaixe de posição real). */
@@ -407,6 +442,8 @@ export const autoPlayRun = (state: RunState, maxNodes = 60): RunAutoPlayResult =
     } else if (state.status === 'reward') {
       autoPickReward(state)
       optimizeStartingXI(state)
+    } else if (state.status === 'lifelost') {
+      continueAfterDefeat(state)
     } else if (state.status === 'market') {
       autoShop(state)
       optimizeStartingXI(state)

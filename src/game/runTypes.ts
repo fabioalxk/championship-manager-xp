@@ -32,7 +32,8 @@ export type RunStatus =
   | 'reward' // pop-up dos 3 jogadores após vencer
   | 'market' // evento de mercado (comprar/vender)
   | 'gym' // evento de academia (bufar atributo)
-  | 'gameover' // eliminado
+  | 'lifelost' // perdeu uma partida mas ainda tem vida — pode continuar
+  | 'gameover' // eliminado (acabaram as vidas)
   | 'victory' // venceu o chefão final
 
 /** Estado completo de uma "corrida" (run) do modo Slay of the CM. */
@@ -45,6 +46,8 @@ export interface RunState {
   /** ids dos 11 titulares — subconjunto de `squad`. */
   startingIds: number[]
   coins: number
+  /** Vidas restantes (começa com 2: pode perder 1 partida; a 2ª derrota elimina). */
+  lives: number
   stage: number // fase do nó atualmente em disputa/aberto (0 antes da 1ª escolha)
   nodes: RunNode[]
   /** ids dos nós clicáveis agora no mapa. */
@@ -52,7 +55,15 @@ export interface RunState {
   /** nó sendo resolvido (partida em andamento, mercado ou academia abertos). */
   currentNodeId: string | null
   pendingReward: GenPlayer[] | null
-  lastMatch: { oppName: string; homeGoals: number; awayGoals: number; won: boolean; stage: number } | null
+  lastMatch: {
+    oppName: string
+    homeGoals: number
+    awayGoals: number
+    won: boolean
+    /** empate em nó normal (classificou sem vencer — chefão nunca marca isto: vai a pênaltis). */
+    drawn: boolean
+    stage: number
+  } | null
   status: RunStatus
   log: string[]
 }

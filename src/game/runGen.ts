@@ -3,7 +3,7 @@ import type { ChaosCfg } from '../sim/chaos'
 import { ROLES_433 } from '../sim/teams'
 import { generatePlayer, generateSquadShaped } from './generate'
 import { ALL_CLUBS } from './worldcup'
-import { WC_ROSTERS } from './worldcupPlayers'
+import { wcRoster } from './worldcupPlayers'
 import type { Rng } from './random'
 import type { GenPlayer } from './types'
 import type { NodeKind, OpponentDef, RunNode } from './runTypes'
@@ -46,7 +46,6 @@ const chaosFor = (stage: number): ChaosCfg => ({
   spikeBoost: 14 + stage * 2,
   tanks: Math.max(1, 3 - Math.floor(stage / 3)),
   tankDrop: 22 - stage,
-  floor: 6,
   ceil: 99,
 })
 
@@ -58,7 +57,6 @@ const REWARD_CHAOS: ChaosCfg = {
   spikeBoost: 36,
   tanks: 4,
   tankDrop: 42,
-  floor: 3,
   ceil: 99,
 }
 
@@ -67,29 +65,45 @@ const START_SHAPE: Role[] = ROLES_433
 
 /**
  * Gera o elenco inicial do técnico: 11 jogadores crus, um por posição da
- * formação. Quando a seleção escolhida tem elenco real (`WC_ROSTERS`), os
- * nomes saem de lá — os atributos continuam gerados/crus normalmente.
+ * formação. Quando a seleção escolhida tem elenco real (`wcRoster`), os nomes,
+ * a hierarquia (deltas) e os arquétipos saem de lá — só o NÍVEL é do modo.
  */
 export const generateStartSquad = (rng: Rng, clubId: string): GenPlayer[] =>
-  generateSquadShaped(START_SHAPE, START_LEVEL, chaosFor(1), rng, WC_ROSTERS[clubId])
+  generateSquadShaped(START_SHAPE, START_LEVEL, chaosFor(1), rng, wcRoster(clubId))
 
-/** Escolhe um clube (identidade/cores) do pool geral, evitando repetir os já usados. */
-const pickClubId = (rng: Rng, exclude: Set<string>): string => {
-  const pool = Object.keys(ALL_CLUBS).filter((id) => !exclude.has(id))
-  const id = rng.pick(pool.length > 0 ? pool : Object.keys(ALL_CLUBS))
+/**
+ * Escolhe a seleção adversária COERENTE com a fase: as seleções ficam ordenadas
+ * pela força real (~2016, `strength` em worldcup.ts) e cada fase sorteia dentro
+ * de uma janela dessa ordem — a fase 1 pega as mais fracas (Catar, Nova
+ * Zelândia...), as fases do meio sobem degrau a degrau e o chefão sorteia só
+ * entre as 5 potências do topo (Alemanha, Argentina, França...).
+ */
+const BAND_SIZE = 9
+const pickClubId = (rng: Rng, exclude: Set<string>, stage: number): string => {
+  const sorted = Object.values(ALL_CLUBS).sort((a, b) => a.strength - b.strength)
+  // janela sobre a lista COMPLETA (estável entre sorteios); os já usados só
+  // saem na hora do sorteio, para a banda da fase não "escorregar" de posição
+  const size = stage > STAGE_COUNT ? 5 : BAND_SIZE
+  const frac = Math.min(1, (stage - 1) / STAGE_COUNT)
+  const center = Math.round(frac * (sorted.length - 1))
+  const lo = Math.max(0, Math.min(center - Math.floor(size / 2), sorted.length - size))
+  const band = sorted.slice(lo, lo + size).filter((t) => !exclude.has(t.id))
+  const pool = band.length > 0 ? band : sorted.filter((t) => !exclude.has(t.id))
+  const id = rng.pick(pool.length > 0 ? pool : sorted).id
   exclude.add(id)
   return id
 }
 
 /**
  * Gera o adversário (identidade + elenco de 11) de um nó de partida/chefão.
- * Seleções com elenco real (`WC_ROSTERS`) entram em campo com os nomes de
- * verdade dos jogadores; as demais seguem com nomes fictícios gerados.
+ * Seleções com elenco real (`wcRoster`) entram em campo com os nomes de
+ * verdade dos jogadores e a hierarquia real entre eles; as demais seguem com
+ * nomes fictícios gerados.
  */
 const generateOpponent = (stage: number, rng: Rng, exclude: Set<string>): OpponentDef => {
-  const clubId = pickClubId(rng, exclude)
+  const clubId = pickClubId(rng, exclude, stage)
   const level = STAGE_LEVEL[stage] + rng.range(-4, 4)
-  const squad = generateSquadShaped(ROLES_433, level, chaosFor(stage), rng, WC_ROSTERS[clubId])
+  const squad = generateSquadShaped(ROLES_433, level, chaosFor(stage), rng, wcRoster(clubId))
   return { clubId, squad }
 }
 

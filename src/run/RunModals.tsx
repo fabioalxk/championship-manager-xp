@@ -5,22 +5,43 @@ function Backdrop({ children }: { children: React.ReactNode }) {
   return <div className="cm-backdrop">{children}</div>
 }
 
-/** Tela de ELIMINAÇÃO: perdeu uma partida, a corrida acaba — só reinicia do zero. */
+const lastMatchLine = (state: RunState) =>
+  state.lastMatch && (
+    <>
+      Derrota para o {state.lastMatch.oppName} ({state.lastMatch.homeGoals}×{state.lastMatch.awayGoals})
+      na fase {state.lastMatch.stage}.
+    </>
+  )
+
+/** Tela de VIDA PERDIDA: perdeu uma partida mas ainda tem vida — a corrida continua. */
+export function LifeLostModal({ state, onContinue }: { state: RunState; onContinue: () => void }) {
+  return (
+    <Backdrop>
+      <div className="cm-modal cm-modal-over">
+        <div className="rq-over-emoji">💔</div>
+        <h2>VOCÊ PERDEU 1 VIDA</h2>
+        <p className="cm-modal-sub">{lastMatchLine(state)}</p>
+        <p className="cm-modal-sub">
+          Resta {state.lives} vida: a próxima derrota elimina. O confronto continua no mapa — tente a
+          revanche ou reforce o time antes.
+        </p>
+        <button className="cm-btn cm-btn-primary cm-btn-lg cm-btn-block" onClick={onContinue}>
+          Continuar a corrida
+        </button>
+      </div>
+    </Backdrop>
+  )
+}
+
+/** Tela de ELIMINAÇÃO: as vidas acabaram, a corrida acaba — só reinicia do zero. */
 export function GameOverModal({ state, onNewRun }: { state: RunState; onNewRun: () => void }) {
   return (
     <Backdrop>
       <div className="cm-modal cm-modal-over">
         <div className="rq-over-emoji">☠️</div>
         <h2>ELIMINADO</h2>
-        <p className="cm-modal-sub">
-          {state.lastMatch && (
-            <>
-              Derrota para o {state.lastMatch.oppName} ({state.lastMatch.homeGoals}×
-              {state.lastMatch.awayGoals}) na fase {state.lastMatch.stage}.
-            </>
-          )}
-        </p>
-        <p className="cm-modal-sub">Fim de jornada. Comece uma corrida nova do zero.</p>
+        <p className="cm-modal-sub">{lastMatchLine(state)}</p>
+        <p className="cm-modal-sub">Suas vidas acabaram. Fim de jornada — comece uma corrida nova do zero.</p>
         <button className="cm-btn cm-btn-primary cm-btn-lg cm-btn-block" onClick={onNewRun}>
           ↺ Nova corrida
         </button>

@@ -14,9 +14,9 @@ const clamp01 = (v: number): number => Math.max(0, Math.min(1, v))
 export const maxSpeed = (p: Player): number => {
   // aceleração soma à velocidade EFETIVA: nas distâncias curtas da partida quem
   // arranca melhor passa mais tempo no topo (não só na rampa inicial)
-  const base = 5.4 + nrm(p.attrs.pace) * 4.3 + nrm(p.attrs.acceleration) * MOVE.accelTopEnd
-  // baixa stamina aprofunda a queda de ritmo quando a energia cai (não só dreno)
-  const fatigueDrop = 0.18 + (1 - nrm(p.attrs.stamina)) * 0.12
+  const base = 4.6 + nrm(p.attrs.pace) * 5.5 + nrm(p.attrs.acceleration) * MOVE.accelTopEnd
+  // baixo FÍSICO (strength, cobre o fôlego) aprofunda a queda de ritmo com a energia
+  const fatigueDrop = 0.1 + (1 - nrm(p.attrs.strength)) * 0.45
   const fatigue = 1 - fatigueDrop * (1 - p.energy)
   // lesão/pancada: um jogador machucado joga MANCANDO (perde ritmo) — `knock` já
   // vem limitado (nunca zera a velocidade), some devagar no correr da partida.
@@ -25,25 +25,23 @@ export const maxSpeed = (p: Player): number => {
 
 /** Aceleração do jogador de linha (m/s²) — arranque (acceleration). */
 export const outfieldAccel = (a: Attrs): number =>
-  PHYS.playerAccel * (0.7 + nrm(a.acceleration) * 0.6)
+  PHYS.playerAccel * (0.55 + nrm(a.acceleration) * 0.9)
 
-/** Piso de curva efetivo: mais ágil vira sem frear tanto (agility). */
+/** Piso de curva efetivo: mais ágil vira sem frear tanto (acceleration cobre agilidade). */
 export const turnFloorOf = (a: Attrs): number =>
-  clamp01(MOVE.turnFloor + nrm(a.agility) * 0.4)
+  clamp01(MOVE.turnFloor + nrm(a.acceleration) * 0.55)
 
-/** Multiplicador da recuperação de energia (naturalFitness). */
-export const recoverMul = (a: Attrs): number => 0.6 + nrm(a.naturalFitness) * 1.0
+/** Multiplicador da recuperação de energia (strength cobre o antigo fôlego). */
+export const recoverMul = (a: Attrs): number => 0.6 + nrm(a.strength) * 1.0
 
-/** Resistência a cair/tropeçar no duelo, 0..1 (balance). */
-export const knockResist = (a: Attrs): number => nrm(a.balance)
+/** Resistência a cair/tropeçar no duelo, 0..1 (strength cobre o antigo balance). */
+export const knockResist = (a: Attrs): number => nrm(a.strength)
 
-/** Manter-se em pé sob desafio 0..1 — equilíbrio domina, pés ágeis ajudam (balance + agility). */
-export const footing = (a: Attrs): number =>
-  clamp01(nrm(a.balance) * 0.75 + nrm(a.agility) * 0.25)
+/** Manter-se em pé sob desafio 0..1 — firmeza física (strength). */
+export const footing = (a: Attrs): number => nrm(a.strength)
 
-/** Competência aérea 0..1 — disputa de bola alta (jumping + heading + balance no contato). */
-export const aerialPower = (a: Attrs): number =>
-  nrm(a.jumping) * 0.6 + nrm(a.heading) * 0.3 + nrm(a.balance) * 0.1 // impulsão/alcance, cabeceio, firmeza no choque
+/** Competência aérea 0..1 — disputa de bola alta (strength cobre impulsão + cabeceio). */
+export const aerialPower = (a: Attrs): number => nrm(a.strength)
 
 // =====================================================================
 // DOMÍNIO DA BOLA SOLTA
@@ -51,20 +49,21 @@ export const aerialPower = (a: Attrs): number =>
 
 /** Raio para dominar a bola solta — firstTouch; bola alta exige disputa aérea. */
 export const controlReach = (a: Attrs, ballSpeed: number): number => {
-  const base = PHYS.controlRadius * (0.7 + nrm(a.firstTouch) * 0.7) // 1º toque puxa mais a bola
+  const base = PHYS.controlRadius * (0.5 + nrm(a.firstTouch) * 1.1) // 1º toque puxa mais a bola
   const aerial = ballSpeed > CONTROL.loftSpeed ? aerialPower(a) * CONTROL.aerialReach : 0
   return base + aerial
 }
 
 /**
  * Chance de errar o primeiro toque — pior cansado, em bola forte e sem
- * firstTouch/composure/concentração. Matar uma bola rápida exige mais técnica.
+ * firstTouch/composure (frieza cobre a decisão). O FÍSICO (strength, cobre o
+ * fôlego) amortece o erro causado pelo cansaço.
  */
 export const miscontrol = (p: Player, ballSpeed: number): number => {
   const a = p.attrs
-  const skill = nrm(a.firstTouch) * 0.6 + nrm(a.composure) * 0.4
-  // concentração amortece o erro causado pelo CANSAÇO (lapso de fim de jogo)
-  const tired = (1 - p.energy) * (1 - nrm(a.concentration) * 0.6)
+  const skill = nrm(a.firstTouch) * 0.55 + nrm(a.positioning) * 0.45
+  // físico alto amortece o erro causado pelo CANSAÇO (lapso de fim de jogo)
+  const tired = (1 - p.energy) * (1 - nrm(a.strength) * 0.6)
   const hard = clamp01(ballSpeed / CONTROL.hardTouchSpeed) // bola forte é mais difícil
   return clamp01((1 - skill) * CONTROL.miscontrolScale * (0.6 + tired) * (0.7 + hard * 0.8))
 }
@@ -73,184 +72,172 @@ export const miscontrol = (p: Player, ballSpeed: number): number => {
 // DUELO (chão)
 // =====================================================================
 
-/** Força do desarme 0..1 (tackling + strength). */
+/** Força do desarme 0..1 — a DEFESA (tackling, cobre a marcação) domina. */
 export const tacklePower = (a: Attrs): number =>
-  nrm(a.tackling) * 0.55 + nrm(a.strength) * 0.3 + nrm(a.positioning) * 0.15 // posicionar/cronometrar o bote
+  nrm(a.tackling) * 0.9 + nrm(a.strength) * 0.1
 
-/** Força de manter a bola no duelo 0..1 (dribbling + strength + balance + agility). */
+/** Força de manter a bola no duelo 0..1 (dribbling, que cobre o talento/flair, + físico). */
 export const carryPower = (a: Attrs): number =>
-  nrm(a.dribbling) * 0.45 + nrm(a.strength) * 0.25 + nrm(a.balance) * 0.2 + nrm(a.agility) * 0.1
+  nrm(a.dribbling) * 0.7 + nrm(a.strength) * 0.3
 
-/** Distância para se atirar ao desarme (m) — a BRAVURA atira de mais longe e o
- *  EMPENHO (workRate) faz fechar/comprometer-se mais cedo no bote. */
+/** Distância para se atirar ao desarme (m) — o bom DEFENSOR fecha o bote de mais longe. */
 export const tackleRange = (a: Attrs): number =>
-  DUEL.range * (0.9 + nrm(a.bravery) * 0.45 + nrm(a.workRate) * 0.25)
+  DUEL.range * (0.85 + nrm(a.tackling) * 0.85)
 
 /** Multiplicador de velocidade do conduto — controle próximo (dribbling). */
 export const dribbleSpeedMul = (a: Attrs): number =>
-  PHYS.dribbleSpeed * (0.78 + nrm(a.dribbling) * 0.5)
+  PHYS.dribbleSpeed * (0.63 + nrm(a.dribbling) * 0.8)
 
 // =====================================================================
 // PASSE / CHUTE (variância e velocidade)
 // =====================================================================
 
-/** Espalhamento-base reduzido por technique e consistency (fonte única de variância). */
-const spread = (skill: number, a: Attrs, baseScale: number, floor = 0): number => {
-  const tech = 1 - nrm(a.technique) * 0.5
-  const cons = 1 + (1 - nrm(a.consistency)) * 0.4
-  return (floor + (1 - skill) * baseScale) * tech * cons
+/** Espalhamento-base do passe — o PASSE (cobre a antiga técnica) manda em tudo;
+ *  a frieza (composure, cobre a decisão) tira o resto do erro. */
+const spread = (a: Attrs, baseScale: number, floor = 0): number => {
+  const dec = 1 - nrm(a.positioning) * 0.25
+  return (floor + (1 - nrm(a.passing)) * baseScale) * dec
 }
 
-export const passSpeed = (a: Attrs): number => 12 + nrm(a.passing) * 11
+export const passSpeed = (a: Attrs): number => 9 + nrm(a.passing) * 17
 // passe ganha um piso de erro e faixa maior: passador ruim espalha bem mais e o
-// craque erra quase nada — antes 0..0.2 era plano demais e não separava os perfis.
+// craque erra quase nada — é o que separa o meia que "encaixa" do que entrega.
 export const passSpread = (a: Attrs, pressured = false): number =>
-  spread(nrm(a.passing), a, 0.28, 0.015) + (pressured ? (1 - nrm(a.composure)) * 0.12 : 0)
+  spread(a, 0.55, 0.01) + (pressured ? (1 - nrm(a.positioning)) * 0.14 : 0)
 
-export const crossSpeed = (a: Attrs): number => 14 + nrm(a.crossing) * 8
+// cruzamento é "passe alçado" — reaproveita passing.
+export const crossSpeed = (a: Attrs): number => 14 + nrm(a.passing) * 8
 export const crossSpread = (a: Attrs, pressured = false): number =>
-  spread(nrm(a.crossing), a, 0.26) + (pressured ? (1 - nrm(a.composure)) * 0.12 : 0)
+  spread(a, 0.45) + (pressured ? (1 - nrm(a.positioning)) * 0.14 : 0)
 
-/** Velocidade do chute (m/s) — POTÊNCIA vem sobretudo da força; a finalização ajuda a bater firme. */
+/** Velocidade do chute (m/s) — POTÊNCIA vem sobretudo do físico; a finalização ajuda a bater firme. */
 export const shotSpeed = (a: Attrs): number =>
   SHOT.speedBase + nrm(a.strength) * SHOT.speedStrength + nrm(a.finishing) * SHOT.speedFinishing
 
 /**
- * Espalhamento do chute: mistura finishing (perto) e longShots (longe);
- * composure reduz o erro sob pressão (far = 0..1 conforme a distância).
+ * Espalhamento do chute: a FINALIZAÇÃO domina a mira em qualquer distância;
+ * composure reduz o erro sob pressão; o drible/talento (flair) afia o chute
+ * decidido de perto (far = 0..1 conforme a distância).
  */
 export const shotSpread = (a: Attrs, far: number, pressured: boolean, power = 0): number => {
-  const acc = nrm(a.finishing) * (1 - far) + nrm(a.longShots) * far
+  const acc = nrm(a.finishing)
   // composure aperta a mira SEMPRE (sangue-frio finaliza colocado), e dobra de
-  // peso sob pressão (pânico abre o chute). Flair afia o chute decidido de perto.
-  const calm = (1 - nrm(a.composure)) * (pressured ? 0.2 : 0.08)
-  const flairTrim = nrm(a.flair) * (1 - far) * 0.1
-  // bater FORTE custa mira; a TÉCNICA tempera (craque martela e acerta o ângulo)
-  const powerCost = power * (1 - nrm(a.technique)) * SHOT.powerSpread
+  // peso sob pressão (pânico abre o chute).
+  const calm = (1 - nrm(a.positioning)) * (pressured ? 0.3 : 0.18)
+  const flairTrim = nrm(a.dribbling) * (1 - far) * 0.35
+  // bater FORTE custa mira; o bom finalizador tempera (martela e acerta o ângulo)
+  const powerCost = power * (1 - nrm(a.finishing)) * SHOT.powerSpread
   // dispersão própria do chute (tunável em SHOT) — NÃO usa o spread() de passe,
   // para poder calibrar a conversão de gol sem mexer no passe/cruzamento.
-  const tech = 1 - nrm(a.technique) * SHOT.spreadTech
-  const cons = 1 + (1 - nrm(a.consistency)) * SHOT.spreadCons
-  const base = (SHOT.spreadFloor + (1 - acc) * SHOT.spreadScale) * tech * cons
+  const base = SHOT.spreadFloor + (1 - acc) * SHOT.spreadScale
   return Math.max(0.02, base - flairTrim + calm + powerCost)
 }
 
-/** Alcance de chute (m): finalizadores e chutadores de longe arriscam de mais longe. */
+/** Alcance de chute (m): finalizadores arriscam de mais longe; o talento (dribbling) ousa o petardo. */
 export const shootRangeOf = (a: Attrs, base: number): number =>
-  // flair levanta a AMBIÇÃO: o ousado arrisca o petardo de longe que o sóbrio nem
-  // cogita (a precisão de longe ainda vem de longShots no shotSpread).
-  base * (0.7 + nrm(a.finishing) * 0.5 + nrm(a.longShots) * 0.5 + nrm(a.flair) * 0.2)
+  base * (0.7 + nrm(a.finishing) * 1.0 + nrm(a.dribbling) * 0.4)
 
 // =====================================================================
 // MENTAL (posicionamento e decisão)
 // =====================================================================
 
-/** Antecipação (s) da trajetória da bola ao interceptar (anticipation). */
+/** Antecipação (s) da trajetória da bola ao interceptar (positioning cobre anticipation). */
 export const chaseLead = (a: Attrs): number =>
-  AI.chaseLead * (0.6 + nrm(a.anticipation) * 0.8) * (0.85 + nrm(a.acceleration) * 0.3)
+  AI.chaseLead * (0.5 + nrm(a.positioning) * 1.0) * (0.8 + nrm(a.acceleration) * 0.4)
 
-/** Quão colado fica ao adversário sem bola, 0..1 (marking). */
+/** Quão colado fica ao adversário sem bola, 0..1 — a DEFESA (tackling cobre a marcação). */
 export const markPull = (a: Attrs): number =>
-  clamp01(nrm(a.marking) * 0.8 + nrm(a.anticipation) * 0.2) // ler a corrida aperta a marcação
+  clamp01(nrm(a.tackling) * 0.8 + nrm(a.positioning) * 0.2) // ler a corrida aperta a marcação
 
-/** Multiplicador de manutenção do bloco/apoio (teamwork). */
-export const shapeMul = (a: Attrs): number => 0.7 + nrm(a.teamwork) * 0.6
+/** Multiplicador de manutenção do bloco/apoio (positioning cobre a antiga teamwork). */
+export const shapeMul = (a: Attrs): number => 0.6 + nrm(a.positioning) * 0.8
 
-/** Avanço das corridas no ataque (offTheBall). */
-export const offBallAdvance = (a: Attrs): number => 0.6 + nrm(a.offTheBall) * 0.8
+/** Avanço das corridas no ataque (positioning cobre a antiga offTheBall). */
+export const offBallAdvance = (a: Attrs): number => 0.5 + nrm(a.positioning) * 1.0
 
 /**
- * Tempo máximo segurando a bola antes de decidir (s) — decisão escolhe o momento,
- * mas o REFLEXO (reação rápida) faz soltar mais cedo: quem tem reflexo alto toca,
- * chuta ou passa quase de primeira, sem dar tempo de ser roubado.
+ * Tempo máximo segurando a bola antes de decidir (s) — o AFOBADO/indeciso enrola
+ * e demora a soltar (mais tempo pro marcador chegar); o FRIO (composure, cobre a
+ * decisão e o reflexo de linha) solta na hora certa, quase de primeira.
  */
 export const holdMax = (a: Attrs): number =>
-  AI.maxHold * (0.7 + nrm(a.decisions) * 0.6) * (1 - nrm(a.reflexes) * 0.4)
+  AI.maxHold * (1.6 - nrm(a.positioning) * 1.2)
 
-/** Magnitude do efeito (curva) dado ao chute (flair). */
-export const flairSpin = (a: Attrs): number => 0.4 + nrm(a.flair) * 0.6
+/** Magnitude do efeito (curva) dado ao chute — o talento é o drible (cobre o flair). */
+export const flairSpin = (a: Attrs): number => 0.4 + nrm(a.dribbling) * 0.6
 
 // =====================================================================
-// GOLEIRO
+// GOLEIRO — UM atributo (goalkeeping) concentra todos os canais
 // =====================================================================
 
 /**
- * Velocidade do GK (m/s): dentro da área valem agilidade e arranque, não o
- * ritmo de corrida longa.
+ * Velocidade do GK (m/s): dentro da área valem o arranque e a reação
+ * (goalkeeping), não o ritmo de corrida longa.
  */
 export const gkMaxSpeed = (p: Player): number => {
   const a = p.attrs
-  const base = 5.2 + nrm(a.agility) * 2.2 + nrm(a.acceleration) * 1.8
-  // alinha o cansaço ao jogador de linha: baixa stamina aprofunda a queda
-  const fatigueDrop = 0.18 + (1 - nrm(a.stamina)) * 0.12
+  const base = 5.2 + nrm(a.acceleration) * 2.5 + nrm(a.goalkeeping) * 1.5
+  const fatigueDrop = 0.1 + (1 - nrm(a.strength)) * 0.45
   const fatigue = 1 - fatigueDrop * (1 - p.energy)
   return base * fatigue
 }
 
-/** Alcance-base do GK (m) — reflexo + agilidade. */
+/** Alcance-base do GK (m) — goalkeeping cobre o antigo reflexo/agilidade. */
 export const gkReach = (a: Attrs): number =>
-  GK.reachBase + nrm(a.reflexes) * GK.reachReflex + nrm(a.agility) * GK.reachAgility
+  GK.reachBase + nrm(a.goalkeeping) * (GK.reachReflex + GK.reachAgility)
 
-/** Habilidade-base de defesa do GK 0..1 (goalkeeping + reflexes + positioning). */
+/** Habilidade-base de defesa do GK 0..1 — goalkeeping é o atributo único do posto. */
 export const gkSaveBase = (a: Attrs): number =>
-  nrm(a.goalkeeping) * 0.36 + nrm(a.reflexes) * 0.36 + nrm(a.handling) * 0.1 + nrm(a.positioning) * 0.18
+  nrm(a.goalkeeping) * 0.85 + nrm(a.positioning) * 0.15
 
 /**
- * Chance de SEGURAR (vs. espalmar): as MÃOS (handling) seguram e os REFLEXOS
- * (pulso firme) ajudam a encaixar mesmo o chute forte; a bola forte dificulta.
+ * Chance de SEGURAR (vs. espalmar): goalkeeping cobre as antigas mãos e o
+ * reflexo; a bola forte dificulta, mas o goleiraço encaixa mesmo o petardo.
  */
 export const gkHoldChance = (a: Attrs, speed: number): number =>
   clamp01(
     GK.holdBase +
-      (nrm(a.handling) * GK.holdSkill + nrm(a.reflexes) * GK.holdReflex) -
-      speed * GK.holdSpeedPen * (1 - nrm(a.handling) * GK.holdSpeedHands),
+      nrm(a.goalkeeping) * (GK.holdSkill + GK.holdReflex) -
+      speed * GK.holdSpeedPen * (1.4 - nrm(a.goalkeeping) * GK.holdSpeedHands),
   )
 
-/**
- * Tempo (s) que o GK segura antes de distribuir — o REFLEXO manda: goleiro de
- * reflexo alto não fica dominando, solta rápido (toque ou chutão) e não dá tempo
- * de pressionarem. Reflexo baixo demora mais a se decidir.
- */
+/** Tempo (s) que o GK segura antes de distribuir — goleiro melhor solta mais rápido. */
 export const gkHoldTime = (a: Attrs): number =>
-  GK.holdTime * (1 - nrm(a.reflexes) * 0.6)
+  GK.holdTime * (1 - nrm(a.goalkeeping) * 0.6)
 
-/** Velocidade do tiro de meta longo (m/s) — kicking. */
+/** Velocidade do tiro de meta longo (m/s) — físico manda na potência. */
 export const gkKickSpeed = (a: Attrs): number =>
-  GK.kickSpeedBase + nrm(a.kicking) * GK.kickSpeedSkill
+  GK.kickSpeedBase + nrm(a.strength) * GK.kickSpeedSkill
 
-/** Alcance (m) do chutão de alívio — kicking manda longe (da área ao meio-campo). */
+/** Alcance (m) do chutão de alívio — físico manda longe (da área ao meio-campo). */
 export const gkKickReach = (a: Attrs): number =>
-  GK.goalKickReach * (GK.kickReachFloor + nrm(a.kicking) * GK.kickReachSkill)
+  GK.goalKickReach * (GK.kickReachFloor + nrm(a.strength) * GK.kickReachSkill)
 
 /**
  * Quão bem o GK lê e confia na direção mais livre ao distribuir, 0..1. Goleiro
- * decidido/frio enxerga o leque limpo e foge do atacante; o fraco chuta reto.
+ * frio/decidido enxerga o leque limpo e foge do atacante; o fraco chuta reto.
  */
 export const gkDistroQuality = (a: Attrs): number =>
-  clamp01(0.2 + nrm(a.decisions) * 0.4 + nrm(a.composure) * 0.2 + nrm(a.vision) * 0.2)
+  clamp01(0.15 + nrm(a.positioning) * 0.85)
 
-/** Velocidade do lançamento/saída curta (m/s) — throwing. */
+/** Velocidade do lançamento/saída curta (m/s) — passing cobre a antiga throwing. */
 export const gkThrowSpeed = (a: Attrs): number =>
-  GK.throwSpeedBase + nrm(a.throwing) * GK.throwSpeedSkill
+  GK.throwSpeedBase + nrm(a.passing) * GK.throwSpeedSkill
 
-/** Espalhamento (rad) da distribuição do GK — kicking/throwing e composure sob pressão. */
+/** Espalhamento (rad) da distribuição do GK — físico/passe e composure sob pressão. */
 export const gkDistroSpread = (a: Attrs, long: boolean, pressured: boolean): number => {
-  const skill = long ? a.kicking : a.throwing
+  const skill = long ? a.strength : a.passing
   const base = (1 - nrm(skill)) * (long ? GK.longSpread : GK.shortSpread)
-  const panic = pressured ? (1 - nrm(a.composure)) * GK.panicSpread : 0
+  const panic = pressured ? (1 - nrm(a.positioning)) * GK.panicSpread : 0
   return base + panic
 }
 
 /** Nota geral do goleiro (0..100) para a UI, isolada do jogador de linha. */
 export const gkRating = (a: Attrs): number => {
   const r =
-    nrm(a.goalkeeping) * 0.22 +
-    nrm(a.reflexes) * 0.2 +
-    nrm(a.handling) * 0.14 +
-    nrm(a.positioning) * 0.14 +
-    nrm(a.oneOnOne) * 0.1 +
-    nrm(a.aerialReach) * 0.08 +
-    nrm(a.composure) * 0.06 +
-    nrm(a.kicking) * 0.06
+    nrm(a.goalkeeping) * 0.62 +
+    nrm(a.positioning) * 0.2 +
+    nrm(a.strength) * 0.1 +
+    nrm(a.acceleration) * 0.08
   return Math.round(r * 100)
 }

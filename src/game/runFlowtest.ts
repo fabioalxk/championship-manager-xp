@@ -15,7 +15,10 @@ import {
   sellPlayer,
   boostAttribute,
   leaveNode,
+  continueAfterDefeat,
+  finishMatch,
   SQUAD_MIN,
+  START_LIVES,
 } from './run'
 import { ALL_CLUBS } from './worldcup'
 import { lineupFor } from './lineup'
@@ -33,6 +36,7 @@ assert(state.status === 'map', 'deveria começar no mapa')
 assert(state.squad.length === 11, 'elenco inicial deve ter 11 jogadores')
 assert(state.startingIds.length === 11, 'deve ter 11 titulares de saída')
 assert(state.coins === 100, 'deve começar com 100 moedas')
+assert(state.lives === START_LIVES, `deve começar com ${START_LIVES} vidas`)
 assert(state.availableNodeIds.length > 0, 'deve haver nós disponíveis na fase 1')
 
 // 2) escalação: bota um reserva fictício e promove no lugar de um titular
@@ -81,6 +85,10 @@ if (gymNode) {
 // 4) joga partidas (rápidas) até vencer alguma e receber a recompensa em cartas
 let guard = 0
 while (state.status !== 'reward' && state.status !== 'gameover' && guard++ < 20) {
+  if (state.status === 'lifelost') {
+    continueAfterDefeat(state)
+    continue
+  }
   const matchNode = state.nodes.find((n) => state.availableNodeIds.includes(n.id) && !n.cleared)
   if (!matchNode) break
   enterNode(state, matchNode.id)
@@ -106,4 +114,39 @@ assert(match.players.length === 22, 'partida deve ter 22 jogadores')
 for (let i = 0; i < 200; i++) step(match, PHYS.dt)
 assert(match.time > 0, 'o relógio da partida deve avançar')
 
-console.log('OK: fluxo manual completo do modo roguelike (mapa, escalação, mercado, academia, partida) funciona.')
+// 6) regras de vida e empate: derrota consome 1 vida (não elimina), empate classifica
+const s2 = newRun('Vidas', clubId, 777)
+const firstMatch = s2.nodes.find((n) => s2.availableNodeIds.includes(n.id) && n.kind === 'match')
+if (firstMatch) {
+  enterNode(s2, firstMatch.id)
+  finishMatch(s2, 0, 1) // derrota
+  assert(s2.lives === START_LIVES - 1, 'derrota deve consumir 1 vida')
+  assert(s2.status === 'lifelost', 'com vida restante, derrota não pode eliminar')
+  assert(!firstMatch.cleared, 'o nó perdido não deve ser marcado como concluído')
+  assert(s2.availableNodeIds.includes(firstMatch.id), 'o nó perdido deve continuar disponível para revanche')
+  continueAfterDefeat(s2)
+  assert(s2.status === 'map', 'deveria voltar ao mapa após perder a vida')
+
+  // empate classifica: nó concluído, metade das moedas, sem cartas de reforço
+  enterNode(s2, firstMatch.id)
+  const coinsBefore = s2.coins
+  finishMatch(s2, 1, 1)
+  assert(s2.status === 'map', 'empate deve classificar e voltar ao mapa')
+  assert(s2.pendingReward === null, 'empate não deve oferecer cartas')
+  assert(firstMatch.cleared, 'empate deve concluir o nó')
+  assert(s2.coins > coinsBefore, 'empate deve render moedas (metade da vitória)')
+  assert(s2.lives === START_LIVES - 1, 'empate não pode consumir vida')
+
+  // sem vidas restantes, a próxima derrota elimina
+  const nextMatch = s2.nodes.find(
+    (n) => s2.availableNodeIds.includes(n.id) && (n.kind === 'match' || n.kind === 'boss'),
+  )
+  if (nextMatch) {
+    enterNode(s2, nextMatch.id)
+    finishMatch(s2, 0, 2)
+    assert(s2.status === 'gameover', 'sem vidas, a derrota deve eliminar')
+    assert(s2.lives === 0, 'vidas devem zerar na eliminação')
+  }
+}
+
+console.log('OK: fluxo manual completo do modo roguelike (mapa, escalação, mercado, academia, partida, vidas/empate) funciona.')

@@ -1,9 +1,12 @@
 import type { Attrs, Role } from './types'
 
 /** Atributos exclusivos do goleiro — jogador de linha não entra na média do "spread". */
-export const GK_ONLY: (keyof Attrs)[] = ['goalkeeping', 'handling', 'aerialReach', 'oneOnOne', 'kicking', 'throwing', 'communication']
+export const GK_ONLY: (keyof Attrs)[] = ['goalkeeping']
 /** Núcleo que faz o goleiro DEFENDER — nunca vira "buraco" (senão deixa de ser GK). */
-export const GK_CORE: (keyof Attrs)[] = ['goalkeeping', 'reflexes', 'handling']
+export const GK_CORE: (keyof Attrs)[] = ['goalkeeping']
+
+/** Piso global de QUALQUER atributo: nenhum jogador fica abaixo disto. */
+export const ATTR_FLOOR = 15
 
 /** Intensidade do caos: quanto MAIOR, mais discrepantes ficam os atributos de um jogador. */
 export interface ChaosCfg {
@@ -13,7 +16,6 @@ export interface ChaosCfg {
   spikeBoost: number
   tanks: number //   nº de pontos fracos afundados de vez
   tankDrop: number
-  floor: number
   ceil: number
 }
 
@@ -47,7 +49,7 @@ export const applyChaos = (attrs: Attrs, role: Role, cfg: ChaosCfg, src: ChaosSo
   const spikes = src.pickN(spikable, 'spike', cfg.spikes)
   const tanks = src.pickN(tankable, 'tank', cfg.tanks)
 
-  const clamp = (v: number) => Math.max(cfg.floor, Math.min(cfg.ceil, Math.round(v)))
+  const clamp = (v: number) => Math.max(ATTR_FLOOR, Math.min(cfg.ceil, Math.round(v)))
   for (const k of used) {
     let v = mean + (out[k] - mean) * cfg.spread //           1) afasta da média
     v += src.jitter(k) * cfg.jitter //                       2) ruído

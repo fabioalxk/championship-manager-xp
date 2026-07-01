@@ -15,11 +15,10 @@ import type { Attrs } from '../../sim/types'
 import { FORMATION_433, ROLES_433, type SeedPlayer } from '../../sim/teams'
 
 const ATTR_KEYS: (keyof Attrs)[] = [
-  'pace', 'acceleration', 'agility', 'balance', 'jumping', 'strength', 'stamina', 'naturalFitness', 'workRate',
-  'dribbling', 'firstTouch', 'technique', 'passing', 'crossing', 'finishing', 'longShots', 'heading', 'tackling', 'marking',
-  'vision', 'anticipation', 'positioning', 'offTheBall', 'decisions', 'composure', 'concentration', 'consistency',
-  'aggression', 'bravery', 'teamwork', 'flair',
-  'goalkeeping', 'reflexes', 'handling', 'aerialReach', 'oneOnOne', 'kicking', 'throwing', 'communication',
+  'pace', 'acceleration', 'strength',
+  'dribbling', 'firstTouch', 'passing', 'finishing', 'tackling',
+  'positioning',
+  'goalkeeping',
 ]
 
 const flatAttrs = (value: number): Attrs => {

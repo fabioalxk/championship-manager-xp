@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { CareerState } from '../game/types'
 import { fmtMoney, sellPlayer, SQUAD_MIN } from '../game/career'
 import { ROLE_LABEL, attrColor, AttrGroups } from '../ui/attrDisplay'
+import { PlayerAvatar } from '../ui/PlayerAvatar'
 import type { CareerApi } from './useCareer'
 
 const ROLE_ORDER = { GK: 0, DEF: 1, MID: 2, FWD: 3 }
@@ -29,6 +30,7 @@ export default function SquadView({ state, act }: { state: CareerState; act: Car
                 onClick={() => setSelId(p.id)}
               >
                 <span className="cm-squad-num">{p.number}</span>
+                <PlayerAvatar teamId={club.id} name={p.name} />
                 <span className="cm-squad-name">{p.name}</span>
                 <span className="cm-squad-role">{ROLE_LABEL[p.role]}</span>
                 <span className="cm-squad-age">{p.age}a</span>
@@ -45,6 +47,7 @@ export default function SquadView({ state, act }: { state: CareerState; act: Car
         <div className="cm-squad-detail">
           <div className="cm-squad-detail-head">
             <span className="cm-squad-detail-num">{player.number}</span>
+            <PlayerAvatar teamId={club.id} name={player.name} size={48} />
             <div className="cm-squad-detail-id">
               <strong>{player.name}</strong>
               <span>

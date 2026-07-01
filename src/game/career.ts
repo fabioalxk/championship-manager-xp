@@ -7,6 +7,7 @@ import type {
   JobOffer,
 } from './types'
 import type { Attrs } from '../sim/types'
+import { ATTR_FLOOR } from '../sim/chaos'
 import { CLUBS_BY_DIVISION, ALL_CLUBS } from './clubs'
 import { DIVISION_LEVEL, PLAYER_BOOST, generateClub, generateMarket } from './generate'
 import { overallOf } from './overall'
@@ -198,7 +199,7 @@ const developPlayer = (
 ): void => {
   for (const k in p.attrs) {
     const key = k as keyof Attrs
-    p.attrs[key] = Math.max(1, Math.min(99, p.attrs[key] + points))
+    p.attrs[key] = Math.max(ATTR_FLOOR, Math.min(99, p.attrs[key] + points))
   }
   p.overall = overallOf(p.role, p.attrs)
   const base = Math.pow(Math.max(0, p.overall - 40) / 10, 2.4) * 120_000

@@ -5,19 +5,19 @@ import { readFileSync, writeFileSync, readdirSync } from 'node:fs'
 const CATEGORIES = [
   {
     name: 'Físico',
-    attrs: ['pace', 'acceleration', 'agility', 'balance', 'jumping', 'strength', 'stamina', 'naturalFitness', 'workRate'],
+    attrs: ['pace', 'acceleration', 'strength'],
   },
   {
     name: 'Técnico',
-    attrs: ['dribbling', 'firstTouch', 'technique', 'passing', 'crossing', 'finishing', 'longShots', 'heading', 'tackling', 'marking'],
+    attrs: ['dribbling', 'firstTouch', 'passing', 'finishing', 'tackling'],
   },
   {
     name: 'Mental',
-    attrs: ['vision', 'anticipation', 'positioning', 'offTheBall', 'decisions', 'composure', 'concentration', 'consistency', 'aggression', 'bravery', 'teamwork', 'flair'],
+    attrs: ['positioning'],
   },
   {
     name: 'Goleiro',
-    attrs: ['goalkeeping', 'reflexes', 'handling', 'aerialReach', 'oneOnOne', 'kicking', 'throwing', 'communication'],
+    attrs: ['goalkeeping'],
   },
 ]
 
@@ -52,10 +52,11 @@ const ranked = [...present].sort((a, b) => Math.abs(data[b].diffMean) - Math.abs
 
 const trialsUsed = data[present[0]]?.trials ?? '?'
 
-let md = `# Relatório de Experimentos de Isolamento de Atributo
+let md = `# Relatório V2 — Experimentos de Isolamento de Atributo
 
-Cada atributo listado em \`atributos.md\` foi testado isoladamente: 11×11, motor
-físico real (\`src/sim/engine.ts\`), ${trialsUsed} partidas completas por atributo.
+Cada um dos **10 atributos** de \`atributos.md\` (enxugados de 39 → 20 → 10 — ver
+o mapa "o que virou o quê" lá) foi testado isoladamente: 11×11, motor físico real
+(\`src/sim/engine.ts\`), ${trialsUsed} partidas completas por atributo.
 Todos os jogadores dos dois times começam com **todos os atributos em 50**. Em
 cada partida, o time **Teste** tem o atributo em questão em **100** para os 11
 jogadores; o time **Controle** mantém **tudo em 50** (inclusive esse atributo).
@@ -65,14 +66,10 @@ pontapé inicial. Seeds determinísticas (reprodutível) — ver \`src/game/expe
 "Diferença" = gols/partida do Teste − gols/partida do Controle. Teste t pareado,
 95% de confiança (|t| > 1.96 ⇒ significativo).
 
-> **Nota sobre amostra e comparações múltiplas:** ${trialsUsed} partidas/atributo é uma
-> amostra menor (rodada assim de propósito, para ser rápida — a versão com 1000
-> partidas, mais precisa, foi testada para \`pace\` em \`reports/experimento-pace.md\`).
-> Com 39 testes a 95% de confiança, espera-se por puro acaso ~2 "falsos positivos"
-> (p entre 0.01 e 0.05). Resultados com p bem abaixo de 0.001 (firstTouch, pace,
-> dribbling, acceleration) são robustos; os de p entre 0.01–0.05 (flair, reflexes,
-> positioning) valem uma segunda rodada com mais partidas antes de tirar conclusão
-> definitiva.
+> **Meta desta rodada:** todo atributo isolado valendo da ordem de **+0.5
+> gol/partida**. Atributos que não alcançavam sozinhos foram FUNDIDOS num
+> vizinho (somando as alavancas — ex.: reflexo+1v1+defesa → goleiro) ou
+> removidos (agressividade). Ver \`atributos.md\`.
 
 ## Ranking geral — do maior para o menor impacto em gols
 
@@ -125,6 +122,7 @@ ${negative.length > 0 ? `### Impacto NEGATIVO (menos gols que o controle)\n${neg
 Relatórios individuais completos (com estatísticas de placebo e detalhes) em \`reports/experimento-<atributo>.md\`.
 `
 
-writeFileSync('relatorioAtributos.md', md, 'utf-8')
-console.log(`relatorioAtributos.md gerado com ${present.length}/${ALL_ATTRS.length} atributos.`)
+const OUT = process.argv[2] ?? 'relatorioV2.md'
+writeFileSync(OUT, md, 'utf-8')
+console.log(`${OUT} gerado com ${present.length}/${ALL_ATTRS.length} atributos.`)
 if (missing.length > 0) console.log(`Faltando: ${missing.join(', ')}`)
