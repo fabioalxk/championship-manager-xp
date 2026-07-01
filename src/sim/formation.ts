@@ -55,6 +55,7 @@ const buildTeam = (
       energy: 1,
       stun: 0,
       burst: 0,
+      knock: 0,
       downAmt: 0,
       ctrlAmt: 0,
       yellow: false,

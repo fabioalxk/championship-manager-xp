@@ -94,16 +94,60 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
 - [x] ✅ **Disciplina** — faltas geram cartão; ~25% das faltas viram cartão (alto, mas escala com aggression).
 - [x] ⚠️ **Finalização vs goleiro (partida real)** — **CONVERSÃO ~31%** (equilíbrio 60×60), robusta nos 2 clockRates
   (32.7% comprimido / 31.1% tempo real). **~3× alto** vs real (~10%): GK/defesa deixam passar demais.
+  **Re-medido it.59 (`conversao-atual.ts`) após o "chute por cima"**: chute → gol 46% / defesa 14% / bloqueio 13% /
+  fora 24%. **GK salva só 24% dos chutes que enfrenta** (real ~68%) — o #1 PERSISTE. O sky ajudou (24% fora) mas
+  não tocou na taxa de defesa. MASCARADO no placar shipado por poucos chutes (5.4/jogo) × alta conversão ≈ gols
+  certos — mas se subir o volume de chute, a conversão explode. Lever real segue `GK.saveBase`/`saveSkill`.
+  **REFINADO it.60 (`defesa-distancia.ts`)**: o GK salva OK de longe (18m+ 43%, entrada 33%) mas COLAPSA de perto:
+  **1v1 <8m só 3%** (real ~30%), **área 8-13m só 10%** (real ~40%) — e é aí que está o grosso dos chutes. O lever
+  exato é a defesa de PERTO: `GK.saveClosePen` (alto demais) e `oneOnOneBonus` (fraco), não o saveBase geral.
+  **⚠️ NOVO it.62**: o usuário reduziu `saveBase 0.3→0.07` E `saveSkill 0.45→0.09` (pra Série D converter). Efeito:
+  GK salva **15-22% por nível** (GK90 só 22%, real ~75%) — fraco demais; e a diferença GK30→90 caiu de **32→7 pts**
+  = **o atributo do goleiro parou de importar** (goleiro craque ≈ perna-de-pau). Enfraquecer o GK pra compensar
+  poucos chutes quebra o realismo E a diferenciação. Correção certa = +volume de chute, não GK quebrado.
+  **WHAT-IF it.64 (`whatif-chutes.ts`)**: conversão por chute da área — GK atual **59%**, GK "normal" (0.30/0.45)
+  ainda **36%** (isolado best-case; em jogo cairia p/ ~15-20%). Hoje ~5.5 chutes × 59% = 2.6 gols (frágil). Rota
+  realista = +chutes × GK MAIS forte que os defaults antigos (nem o 0.30/0.45 basta) — os dois juntos, não um só.
 - [x] ⚠️ **Curva de 90 min** — `tools/curva.ts`: fatigado (stamina 30) × resistente (85). Resistente
   termina com energia **0.99 vs 0.86**, vence **258×191 gols**, marca **48%** no último terço (vs 21% no 1º) ✅.
   PORÉM o surto de fim é **global** (o fatigado também marca 49% no fim) — energia mal cai (só até 0.86 em 90'),
   então a vantagem do "fôlego" é **modesta**. Possível alvo: aprofundar o dreno de stamina.
-- [x] ✅ **Bola parada** — `tools/bolaparada.ts`: cruzamento ataque-aéreo × defesa+GK. Matriz monotônica
-  nos 2 eixos ✅. Equilíbrio 50×50: 43% cravados / 28% afastados / 14% fora / 8% defendidos / **5.8% gol**.
-  ⚠️ cross→gol levemente alto (~3% real) e **GK crava 43%** dos cruzamentos (alto — goleiro real sai em menos).
+- [x] 🚨 **Bola parada — SUPER-CORREÇÃO** — `tools/bolaparada.ts`. ANTES (it.6): 43% cravados / 14% fora / **5.8% gol**.
+  AGORA (após `GK.claimBase 0.34→0.1` e `HEAD.scatter 0.42→0.16`): 19% cravados / **3.6% fora** / **31% gol** 🚨.
+  A redução do cravar foi BOA (43→19%, realista). Mas o scatter foi longe demais: cabeçada quase nunca erra (real
+  erra 50%+) e o GK salva só 5.7% (fraqueza de perto do #1). Cross→gol **5.8%→31%** (real ~3%) = cruzamento OP.
+  Levers: subir `HEAD.scatter` de volta (~0.28-0.32, não 0.16) + a defesa de perto do GK (#1).
+  **IMPACTO REAL it.67 (`gols-aereos.ts`)**: em partida, **24% dos gols são aéreos** (cruzamento/cabeça) — real
+  ~15-20%. Levemente alto, NÃO dominante (o cruz. é fonte real de gol com a IA cruzando mais). Ajuste fino, não urgente.
 - [x] ⚠️ **Pressão vs saída de bola** — `tools/pressao.ts`: pressing (workRate 90) recupera **7.5%** das
   bolas no campo de ataque (16/jogo) vs passivo (workRate 25) **6.1%** (13/jogo). Direção ✅, mas efeito
   **FRACO**: swing 25→90 move só 6.1→7.5% (real ~15-25%). **Pressing subdimensionado** (workRate pesa pouco).
+- [x] ✅ **Bloqueio de chute** — `tools/bloqueios.ts`: **27.3% dos chutes bloqueados por defensor** (real ~25-30%) ✅.
+  Zagueiros bloqueiam BEM — sistema saudável. (Corrige a hipótese do escanteio abaixo.)
+- [x] ⚠️ **Escanteios (frequência)** — `tools/escanteios.ts`: só **3.4/jogo** (real ~10). NÃO é falta de bloqueio
+  (27% ✅). A causa: os chutes **bloqueados/desviados ricocheteiam pra DENTRO** em vez de sair pra linha de fundo —
+  é a **direção do desvio** (`COLLIDE.scatter`/restituição), não o bloqueio. Conversão escanteio→gol inconclusiva
+  (contaminada pelo clockRate=2).
+- [x] ✅ **Impedimento (Lei 11)** — `tools/impedimento.ts` + `tools/offside-correto.ts`: feature nova validada em
+  FREQUÊNCIA e CORREÇÃO. Frequência ~**2-3/jogo** (9.9 no clockRate=2 inflado). Correção: atacante marcado que
+  pega a bola **apita** ✅, onside/não-marcado **não apita** ✅, e a linha fica no **último defensor** (x=85/89
+  onside, 91/95 impedido) ✅. Só pune quem está mesmo em impedimento — regra correta.
+- [x] ✅ **Atacantes na área no cruzamento** — `tools/atacantes-area.ts`: feature nova validada. Cruzamento no ar
+  sobre a área tem **0.77 atacante em média**, **49% dos momentos com ≥1** (antes: ~0, "todo cruz. abafado"). ✅
+  **Re-medido it.65** após a IA "cruzar mais" (ai.ts): subiu p/ **1.03 média / 60% com ≥1** ✅. PORÉM amplifica o
+  cruzamento OP (31% conversão, it.61) — mais cruzamento × conversão alta = gol de cabeça pesa demais. Corrigir a
+  conversão aérea (`HEAD.scatter` de volta + GK de perto) ficou mais urgente com a IA cruzando mais.
+- [x] ❔ **Gestão de jogo (gameUrgency)** — `tools/gestao-jogo.ts`: INCONCLUSIVO. O efeito de tempo aparece
+  (min20 43m→min88 63m, empurra no fim), mas o componente de PLACAR é só ±2m e some no ruído da dinâmica da bola
+  (não dá pra isolar sem congelar a sim). ⚠️ Achado colateral: `engine.ts:24` importa `GAMESTATE` sem usar
+  (TS6133) — import morto/mecânica talvez não 100% ligada no engine.
+- [x] ✅ **Tiro livre indireto (Lei 13)** — `tools/indireto.ts`: feature nova validada. Batido DIRETO (só o
+  cobrador) = **0% gol** (anulado → tiro de meta); com 2º TOQUE = **100% gol** (vale). 500 tentativas cada, zero erro.
+- [x] ✅ **Lesões (INJURY)** — `tools/lesoes.ts`: feature nova validada. **10.1% das faltas machucam** (config
+  6%×(1+agr) ≈ 9-11% ✅), 3.0/jogo, 16.7% graves. Impacto no ritmo confirmado: sadio 33.7 → leve 30.3 (-10%)
+  → grave **24.9 km/h (-26%)** via `knock`. (Corrigi `_simlib.mkP` que faltava o novo campo `knock`.)
+- [x] ✅ **Regressão (suíte do projeto)** — `node tools/run-tests.mjs` passa limpo após as edições (indireto FK,
+  elencos, faltas): carreira 20/20 zera, fluxo+motor ok, telas renderizam. Nada quebrou.
 - [x] ✅ **Invariantes / robustez** — `tools/invariantes.ts`: 0% NaN/Infinity, 0% escapa do campo, 0% energia
   fora dos limites, 0% deadlock, todas terminam em 96 min. **Física/estado SÓLIDOS** — os problemas são de
   balanceamento/IA, não de motor quebrado.
@@ -127,9 +171,13 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
 - [x] ✅ **Sensibilidade do quick-sim à força** — `tools/quicksim-forca.ts`: `quickResult` responde BEM (gap 0→53%,
   5→72%, 10→88%, 20→94%, 30→97%) — até deterministico demais. O problema da tabela NÃO é ele (ver #-2). + spread de
   força intra-divisão medido: amplitude só **1.5 pt** (clubes quase iguais) — a verdadeira causa da tabela aleatória.
-- [x] ⚠️ **Tiro livre direto** — `tools/freekick-sim.ts` (do usuário): conversão direta **2.7%** (central 3.1%),
-  real ~5-8%. Levemente baixo, mas FK raro é ok. Causa: só **20% dos chutes chegam ao gol** (resto na barreira/
-  abafado) — a colocação não vence a barreira o bastante. Baixa prioridade.
+- [x] 🚨 **Tiro livre direto — REGRESSÃO (era baixo, virou OP)** — `tools/freekick-sim.ts`. It.34: conversão **2.7%**
+  (baixo). Após mudanças na bola parada: **27.4%** (central 31.7%, real ~5-8%) 🚨 — **10× alto**. Mudou: (a) o cobrador
+  agora **SEMPRE chuta** (0% cruza, era 37%); (b) conversão **plana por distância** — falta de **35m converte 29%**
+  (deveria despencar). Falta virou arma imbatível. Levers: reduzir potência/precisão do chute de falta longo
+  (curva por distância), reequilibrar barreira/GK, e voltar a permitir o cruzamento como opção.
+  **Impacto real BAIXO** (`tools/gols-por-jogada.ts`): só **1.1 chutes de falta/jogo** → contribuem **<0.5% dos
+  gols** da partida. É problema de FEEL (quando rola uma falta boa, entra fácil demais), não de placar.
 - [x] ✅ **Pênaltis** — `tools/penaltis.ts`: frequência **0.1/jogo** (raro, plausível). Cobrança ISOLADA (fiel:
   chute no canto de 11m, GK centrado): **craque converte 74%** (real ~75-78% ✅), vs GK top 63%. ⚠️ cobrador
   **médio só 37%** (real ~65%) — baixo, pois depende da precisão (finishing) e o motor não dá a "vantagem do
@@ -150,8 +198,59 @@ Legenda: ✅ validado (monotônico) · ⬜ a fazer
   ×2 com a bola alta) → **pênalti** na própria área, **tiro livre direto** fora. Raro: **~0.15 marcações/jogo** (a
   maioria tiros livres) e **~0.017 pênaltis de mão/jogo** no clockRate 40, 120/120 partidas completas, 0 NaN. GK
   isento dentro da própria área; o último tocador é blindado (não marca mão no próprio chute).
-- [x] 🚨 **Elencos REAIS (Brasil×Argentina, clockRate real)** — `tools/elenco-real.ts`: **84% dos jogos 0×0**,
-  0.16 gols/jogo, 0.7 chutes/jogo. A compressão do clockRate esvazia a partida. **Achado #0** (ver abaixo).
+- [x] ✅ **Tiro livre INDIRETO (Lei 13)** — `indirectFK`/`indirectTakerId` + `scoreOrDisallow` (`engine.ts`) e o
+  desvio de `freeKickAction` (`ai.ts`): o cobrador **toca curto** para um companheiro em vez de bater ao gol, e um
+  gol batido DIRETO (sem 2º toque) é **anulado** → tiro de meta. Some quando um 2º jogador toca. O **impedimento**
+  passou a ser indireto (antes podia, em tese, ser batido direto). 100/100 partidas, 0 NaN; teste de estresse
+  (todo recuo mal resolvido) completa limpo, 0 gols indevidos.
+- [x] ✅ **Recuo ao goleiro (recycle na saída de bola)** — `gkRecycleTarget` (`ai.ts`): um jogador FUNDO (próprio
+  terço), pressionado e SEM saída progressiva à frente, devolve ao GK LIVRE atrás (linha limpa, passe dominável
+  `AI.recycleSpeed`) em vez do chutão às cegas. Ativa a **regra do recuo** (feet-play) e, sob afobamento, o
+  **`backPassHandle`** (indireto na área). Verificado: **0.14 recuos/jogo**, gols **2.8** e posse **48%** INALTERADOS,
+  100/100 partidas, 0 NaN. RARO por design: a saída de bola lenta quase não existe neste motor picado (fraqueza #8);
+  escancarar os gates infla o placar (4.6 gols) e vira irreal — a raridade é honesta, não bug.
+- [x] ✅ **Lesões/pancadas na falta (durante o jogo)** — `maybeInjure` (`engine.ts`) + `Player.knock` + `maxSpeed`:
+  uma falta marcada pode MACHUCAR o faltado (`INJURY.foulChance` 0.06 × 1+agressão do infrator); ele passa a jogar
+  MANCANDO (perde ritmo até `INJURY.maxImpair` 0.36) e fica mais tempo caído; a dor CORRE devagar (`recoverRate`).
+  ~22% das lesões são graves. Verificado: **0.16 lesões/jogo** (~9% das faltas, realista por falta), gols **2.8
+  INALTERADOS**, `knock` sempre em [0, 0.36], 100/100 partidas, 0 NaN. GK isento; sem substituições (ninguém sai).
+- [x] ✅ **Chute por cima + travessão (altura do chute)** — antes TODO chute era rasteiro (`vz=0`): nunca ia por
+  cima nem carimbava a trave. Agora `SHOT.sky*` (`engine.ts`) faz ~10-16% dos chutes SUBIREM demais e irem por
+  cima (mais no afobado/tosco e sob pressão — escala com finalização/frieza), e `crossbarBounce` trata a bola na
+  altura da trave superior (rebote vivo, "no travessão!"). Verificado: gols **2.48→2.42** (queda mínima, ajuda a
+  conversão ~3× alta), 120/120 partidas, 0 NaN, suíte `run-tests.mjs` limpa. Travessão em si é raro (~0.025/jogo,
+  honesto — os postes verticais já cobrem a madeira rasteira); o ganho é a VARIEDADE de altura do chute (por cima,
+  ângulo, carimbo na trave), antes inexistente.
+- [x] ✅ **Lesão sem contato + BOLA AO CHÃO (Lei 8)** — no laço de stamina (`engine.ts`) um SPRINT pode causar
+  estirão muscular (`INJURY.strain*`, mais provável CANSADO): leve → joga mancando e o jogo segue; grave → o
+  árbitro PARA o jogo e reinicia com **bola ao chão** (`dropBall`, sem disputa, p/ o time que tinha a posse — Lei 8
+  atual). Preenche o único tipo de reinício que faltava (parada que não é falta/saída). Verificado: **0.32
+  estirões/jogo**, **0.033 bolas ao chão/jogo** (raro e realista), gols **2.56 inalterados**, `knock` em [0,0.36],
+  120/120 partidas, 0 NaN, `run-tests.mjs` limpo.
+- [x] 🔬 **Diagnóstico da posse/passe (achado p/ o #8)** — instrumentei o desfecho dos passes em partida real:
+  **~34 passes/jogo, 50% completos, 40% INTERCEPTADOS, 9% pra fora**. Reduzir `passSpread` (0.28→0.21) NÃO moveu a
+  completude (50→50%) e ainda SUBIU os gols (2.48→2.92, direção errada) → a interceptação é **posicional** (o
+  zagueiro fecha a linha de passe), não imprecisão. Revertido. **Lever real do #8 = interceptação defensiva**
+  (`chaseLead`/alcance/posicionamento) — multi-lever da calibração do mantenedor, não um ajuste único seguro.
+- [x] ✅ **Gestão de jogo (placar + relógio)** — `gameUrgency` (`ai.ts`): no TERÇO FINAL, o time que VENCE recua o
+  bloco e compromete menos gente à frente (`attackTarget`×urg<1 + `defendTarget` drop); o que PERDE se lança
+  (urg>1). Só atua tarde e com placar (=1 em 0×0/neutro → NÃO afeta as validações de atributo). `GAMESTATE.swing`
+  0.3. Verificado (150 jogos, com vs sem): comportamento visível, **empates 21%→28.7%** (mais realista), quem
+  faz 1º **perde MENOS** (9.2%→8.5%, protege a vantagem) e vence 67-70% (real ~70% ✅), gols **2.86→2.77** (queda
+  mínima), 0 NaN, `run-tests.mjs` limpo. (A fraqueza antiga "1º gol vence só 53%" já fora sanada pela recalibração
+  externa — hoje o baseline já é ~70%; esta feature acrescenta o COMPORTAMENTO real, não conserta métrica quebrada.)
+- [x] ✅ **Cera / matar o relógio (bola parada)** — `leadProtect`+`placeDeadBall` (`engine.ts`): o time que PROTEGE
+  a vantagem no fim ALONGA suas cobranças (goleiro cozinha o tiro de meta, cobrador demora no lateral/tiro livre,
+  `GAMESTATE.timeWaste` 0.6). O tempo perdido volta como ACRÉSCIMO (o árbitro compensa) → **balanço neutro**:
+  gols **2.57→2.53** inalterados, mas os **acréscimos crescem** num jogo decidido (84.6s→**102s**). 150/150 jogos,
+  0 NaN, `run-tests.mjs` limpo. (Resolve de quebra o **TS6133** do achado da gestão de jogo: `GAMESTATE` agora É
+  usado no engine — a mecânica de placar/relógio está ligada ao motor via este consumo real.)
+- [x] ✅ **Elencos REAIS (Brasil×Argentina, clockRate real)** — `tools/elenco-real.ts`. ANTES (#0): **84% 0×0**,
+  0.16 gols/jogo. DEPOIS dos fixes do usuário (re-medido it.66): **2.52 gols/jogo, só 6% de 0×0**, distribuição
+  de placares variada e realista (1×0, 1×1, 1×2, 0×2, 1×3, 2×2, 3×0...), jogos competitivos. **#0 RESOLVIDO — o
+  jogo que o jogador assiste está ÓTIMO** ✅. Residual (realismo interno, não afeta o placar): 4.9 chutes (baixo) ×
+  51% conversão (alta) × GK fraco se compensam pra dar gols realistas. Output excelente; "mais correto" internamente
+  = +chutes/−conversão/+GK.
 - [x] ✅ **Dados dos elencos** — `tools/elenco-dados.ts`: **5/5 testes de coerência posicional passam** (FWD+rápido
   que DEF, FWD finaliza melhor, DEF desarma melhor, GK 93×15 linha, MID+fôlego). Após dar fraquezas reais aos
   jogadores: spread AUMENTOU (dribbling 36–99, passing 42–97, pace 50–97). **Dados NÃO são a causa do 0×0.**
@@ -258,12 +357,15 @@ Ordem aproximada de impacto:
    igual; a única variação é ruído por jogador (`gauss*5`) que se anula na média (18 jogadores) → desvio só 0.4.
    Confirmado em TODAS as divisões (amplitude 1.2–1.6, variância toda ENTRE divisões, nada DENTRO). Fix: somar
    um **offset de força por CLUBE** (ex.: tier ±8) → amplitude ~16 (campeão acima do rebaixado). *Montar elenco vira título.*
--1. **🚨🎯 "POUCOS GOLS NA SÉRIE D" CONFIRMADO** (`tools/gols-divisao.ts` vs `gols-divisao-motor.ts`) — a
-   discrepância raiz da CARREIRA. **Quick-sim (Poisson, que popula a TABELA): 2.7 gols/jogo em TODAS as divisões**
-   ✅ (D=2.71). **Motor físico (que o jogador ASSISTE): A=0.90 / B=0.65 / C=0.50 / D=0.38** ❌. Dois mundos:
-   tabela realista, jogo assistido quase 0×0. Série D é a pior porque time fraco (força 57) cria menos chances
-   (1.3 chutes vs 2.7 da A) e o `clockRate=40` da carreira comprime ainda mais. **Fix = #0** (baixar clockRate
-   do motor + GK), e o efeito é mais forte nas divisões baixas. *É o que o usuário sente jogando.*
+   **AINDA ABERTO** (re-medido it.58: campeão-forte 10%, Spearman 0.24 — inalterado; os fixes recentes foram no
+   gameplay, não na geração de clubes). É o principal pendente da CARREIRA, e é uma correção isolada em `generate.ts`.
+-1. **✅ RESOLVIDO — "POUCOS GOLS NA SÉRIE D"** (`tools/gols-divisao-motor.ts`). ANTES: motor físico A=0.90 /
+   D=**0.38** gols (quase 0×0), ~1.3-2.7 chutes/jogo. DEPOIS dos fixes do usuário (mais chutes + "chute por cima"
+   `SHOT.skyBase`): **A=3.85 / B=3.63 / C=2.80 / D=3.13 gols/jogo**, **13-15 chutes/jogo**, conversão 31%→24%.
+   A Série D pulou de **0.38 → 3.13** — faixa real (~2.6-3.9) ✅. Achado #0/#-1 essencialmente fechado.
+   **Re-medido it.63** (após enfraquecer o GK): gols seguem realistas (A 3.13 / D **2.90**), MAS a composição
+   inverteu — chutes caíram 14→**5.5/jogo** e conversão subiu 24→**51%**, com só ~1 defesa/jogo. Placar certo pela
+   rota frágil (poucos chutes × GK fraco). Resta afinar chute/defesa (volume + GK), não o total de gols.
 -4. **📊 `overallOf` mis-avalia arquétipos** (`src/game/overall.ts`) — estruturalmente ok (pesos por posição),
    mas: **GKs super-avaliados cross-position** (Alisson 97/Dibu 96 = top-2 geral, acima do Messi 90 — `gkRating`
    em escala mais alta); **lateral-ala punido** (Wendell **46**! pace 82/cruza 78, mas pesos DEF só veem
@@ -273,7 +375,8 @@ Ordem aproximada de impacto:
 -3. **📈 Evolução de jogador desbalanceada (carreira fácil)** (`tools/evolucao.ts`) — `agePlayers`+núcleo. Joia
    (18/60 OVR): num RIVAL sobe só **+6** (66 aos 24) e ESTAGNA; no SEU clube dispara pra **78 aos 24 (+18)** e
    segue até **91**. Assimetria (seu núcleo +2/ano vs rival +0) = seu time BOLA-DE-NEVE, mundo estagna → carreira
-   fácil (selftest zera em ~3 temporadas). Também: prime (25-29) é **flat** pros rivais (sem pico real). Levers:
+   fácil (selftest: **20/20 zeram em ≤3 temporadas**, o "máx" caiu de 4→3 após as edições — ficou ainda mais fácil).
+   Também: prime (25-29) é **flat** pros rivais (sem pico real). Levers:
    `career.ts:189` (crescimento jovem p/ TODOS ~+2-3, pico no prime) e `career.ts:400` (núcleo +2 é generoso demais).
 0. **🚨 84% DOS JOGOS 0×0 + conversão alta — ACOPLADOS** (`tools/elenco-real.ts` + `tools/clockrate-sweep.ts`).
    Varredura de clockRate (elencos reais) — gols/jogo · chutes/jogo · conversão · %0×0:
@@ -316,6 +419,11 @@ Ordem aproximada de impacto:
    (gap de 45!) dá só **55% de posse** (real ~65-70%) e **64% de passe** (elite devia ~85%). A posse vira **turnover
    aleatório**, não habilidade. Conecta com #5 (sem posse longa, a bola não chega às pontas). Levers: `passSpread`
    (estreitar), interceptação (`markPull`/`chaseLead`), `miscontrol` na recepção.
+   **AINDA ABERTO após os fixes** (re-medido it.51): passe **49%**, posse **1.76 toques**, 48% de 1 toque — o
+   "recuo ao GK" é raro demais (~0.17/jogo) pra ajudar. **LEVER LOCALIZADO** (`tools/passe-falha.ts`, it.52): das
+   falhas de passe, **79% são INTERCEPTAÇÃO** e só 21% erro de mira. Defensores interceptam **42% de TODOS os
+   passes** (real ~5-8%) — leem/alcançam o passe fácil demais. **Fix = reduzir interceptação** (`markPull`,
+   `chaseLead`, alcance do ganho de bola solta), NÃO o `passSpread` (que resolve só 1/5).
 9. **🐛 Bug de stats LOCALIZADO** (`tools/statbug.ts`) — `goals/shotsOnTarget = 1.18` no desigual ❌.
    Atribuição OK (**100% dos gols têm autor=marcador correto**). O furo: `shotsOnTarget++` (`engine.ts:833`)
    só conta quando o **GK enfrenta** o chute como candidato; gol passando por GK **batido/fora de posição**

@@ -86,6 +86,9 @@ export interface Player {
   stun: number
   /** janela (s) de ARRANQUE pós-drible: conduz acima do ritmo por um átimo (explode pelo espaço) */
   burst: number
+  /** PANCADA/lesão 0..1: fração de velocidade PERDIDA por jogar machucado após uma
+   *  falta dura (joga mancando). Some devagar ao longo da partida (corre a dor). */
+  knock: number
   /** quão "caído" está 0..1 (transição suave entre em pé e no chão) */
   downAmt: number
   /** quão "dono da bola" está 0..1 (fade do realce do controlador) */
@@ -252,6 +255,10 @@ export interface MatchState {
   fkShotTimer: number
   /** cobrança de pênalti em andamento → todos aguardam fora da área até o chute */
   penalty: boolean
+  /** o reinício atual é um ESCANTEIO → durante o congelamento os atacantes CARREGAM
+   *  a área (1º pau/marca/2º pau) e a defesa recua para MARCAR na área; o cobrador
+   *  alça o cruzamento para o cabeceio. Sem isso a bola era alçada numa área vazia. */
+  corner: boolean
   /** a jogada atual nasce de uma BOLA PARADA (lateral, escanteio, tiro de meta,
    *  tiro livre, saída) → a PRIMEIRA bola entregue por essa cobrança NÃO está
    *  sujeita a impedimento (Lei 11). Consumido no primeiro toque/entrega. */
@@ -274,6 +281,8 @@ export interface MatchState {
   lastShooterId: number | null
   /** distância (m) do último chute ao gol — rotula golaço de longe */
   lastShotDist: number
+  /** o último chute foi de CABEÇA? (rotula gol de cabeça / diagnóstico) */
+  lastShotHeader: boolean
   /** último a dar um passe (candidato a assistência); null quando inválido */
   lastPasserId: number | null
   /** último jogador a tocar a bola (atribui lateral/escanteio e desvios) */
@@ -292,6 +301,10 @@ export interface MatchState {
   celebration: Celebration | null
   /** faixa de anúncio do último lance relevante (falta, pênalti, intervalo...) */
   banner: Banner | null
+  /** segundos REAIS restantes de CONGELAMENTO na transição de fase (1º tempo /
+   *  intervalo): enquanto > 0 a jogada não corre — o jogo só recomeça quando a
+   *  faixa central sai da tela. Contado em tempo de parede pelo loop, não no relógio. */
+  introPause: number
   events: MatchEvent[]
   /** estado do PRNG determinístico (mulberry32) — replays e debug consistentes */
   rngState: number

@@ -8,6 +8,7 @@ import { lineupFor } from '../game/lineup'
 import { resolveKits } from '../game/kits'
 import type { CareerApi } from './useCareer'
 import { ClubBadge } from '../ui/ClubBadge'
+import { EventBanner } from '../ui/EventBanner'
 
 const SCALE = 7
 
@@ -113,6 +114,12 @@ export default function MatchView({
           onClick={primeAudio}
           style={{ ['--pw' as string]: `${size.width}px` }}
         />
+        {!over && (
+          <EventBanner
+            b={hud.banner}
+            resolveTeam={(t) => ({ shirt: t === 'home' ? homeClub.shirt : awayClub.shirt })}
+          />
+        )}
         {over && (
           <div className="cm-match-over">
             <div>

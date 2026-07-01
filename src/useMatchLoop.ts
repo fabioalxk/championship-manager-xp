@@ -98,14 +98,24 @@ export const useMatchLoop = (
       // a comemoração roda em tempo REAL (legível em qualquer velocidade); a
       // jogada normal corre acelerada conforme o controle de velocidade.
       const celebrating = m.celebration !== null
-      const stepping = runningRef.current && m.status === 'play' && !celebrating
+      // congelamento da faixa de transição de fase (1º tempo / intervalo): a
+      // jogada NÃO corre enquanto a faixa central está na tela.
+      const pausing = m.introPause > 0
+      const stepping = runningRef.current && m.status === 'play' && !celebrating && !pausing
       if (celebrating && runningRef.current) {
         acc = 0 // sem dívida de passos pendentes ao voltar do congelamento
         stepCelebration(m, dtReal)
+      } else if (pausing && runningRef.current) {
+        // conta a pausa em tempo REAL (independe da velocidade); ao zerar, o jogo
+        // recomeça exatamente quando a faixa sai da tela.
+        acc = 0
+        m.introPause = Math.max(0, m.introPause - dtReal)
       } else if (stepping) {
         acc += dtReal * speedRef.current
         let steps = 0
-        while (acc >= PHYS.dt && steps < 16) {
+        // para de avançar assim que um passo dispara uma transição de fase
+        // (introPause > 0): a jogada congela AQUI, sem correr por baixo da faixa.
+        while (acc >= PHYS.dt && steps < 16 && m.introPause === 0) {
           step(m, PHYS.dt)
           acc -= PHYS.dt
           steps++
@@ -114,8 +124,10 @@ export const useMatchLoop = (
         if (acc > PHYS.dt) acc = PHYS.dt
       }
 
-      // alpha = fração do passo já decorrida → render interpola prev→pos (suave)
-      const alpha = stepping ? Math.min(1, acc / PHYS.dt) : 1
+      // alpha = fração do passo já decorrida → render interpola prev→pos (suave).
+      // Se uma transição de fase acabou de congelar (introPause), não interpola —
+      // evita um "pulo" no frame em que os jogadores são recolocados na saída.
+      const alpha = stepping && m.introPause === 0 ? Math.min(1, acc / PHYS.dt) : 1
       drawMatch(ctx, m, scale, alpha)
 
       // HUD atualiza ao mudar o segundo, surgir evento, acabar ou (des)comemorar

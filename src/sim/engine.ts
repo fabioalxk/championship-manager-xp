@@ -12,6 +12,7 @@ import {
   AI,
   AIR,
   AREA,
+  BANNER,
   CARD,
   CELEBRATION,
   COLLIDE,
@@ -21,10 +22,12 @@ import {
   DUEL,
   FIELD,
   FREEKICK,
+  GAMESTATE,
   GK,
   GOAL,
   HANDBALL,
   HEAD,
+  INJURY,
   KICKOFF,
   MATCH,
   MOVE,
@@ -136,11 +139,19 @@ const addEvent = (
   if (s.events.length > 60) s.events.shift()
 }
 
+/** Lances de TRANSIÇÃO de fase — congelam a jogada enquanto a faixa central está
+ *  na tela (1º tempo, intervalo). Os demais (falta, cartão...) não congelam. */
+const PHASE_BANNERS: ReadonlySet<EventType> = new Set(['kickoff', 'half'])
+
 /**
  * Anuncia um lance: registra o evento no feed E dispara a FAIXA central sobre o
  * campo (banner), para que o jogador ENTENDA na hora o que aconteceu — uma falta,
  * um pênalti, o intervalo. O `id` cresce sempre para a UI reanimar a faixa mesmo
  * em dois lances iguais em sequência. `title` é a palavra em destaque na faixa.
+ *
+ * Numa transição de fase a jogada CONGELA (introPause) pelo tempo em que a faixa
+ * fica na tela — o jogo só recomeça quando a faixa sai (nada de jogo rolando por
+ * baixo dela).
  */
 const announce = (
   s: MatchState,
@@ -151,6 +162,7 @@ const announce = (
 ) => {
   addEvent(s, type, team, text)
   s.banner = { id: (s.banner?.id ?? 0) + 1, type, team, title, text }
+  if (PHASE_BANNERS.has(type)) s.introPause = BANNER.phaseMs / 1000
 }
 
 /** Cria uma partida nova: Brasil ataca para a direita no 1º tempo. */
@@ -183,6 +195,7 @@ export const createMatch = (rosters?: Rosters): MatchState => {
     wallIds: [],
     fkShotTimer: 0,
     penalty: false,
+    corner: false,
     fromRestart: false,
     offsidePend: null,
     indirectFK: false,
@@ -190,6 +203,7 @@ export const createMatch = (rosters?: Rosters): MatchState => {
     stoppage: 0,
     lastShooterId: null,
     lastShotDist: 0,
+    lastShotHeader: false,
     lastPasserId: null,
     lastTouchId: null,
     score: { home: 0, away: 0 },
@@ -201,13 +215,14 @@ export const createMatch = (rosters?: Rosters): MatchState => {
     stats: { home: emptyStats(), away: emptyStats() },
     celebration: null,
     banner: null,
+    introPause: 0,
     events: [],
     // seed variando por partida (variedade), mas determinístico DENTRO da partida
     rngState: seedRng(Date.now()),
   }
   // 1º tempo: o time da saída posiciona dois jogadores na bola, no centro.
   kickoff(s, s.firstKickoff)
-  addEvent(s, 'kickoff', s.firstKickoff, 'Apito inicial — bola rolando!')
+  announce(s, 'kickoff', s.firstKickoff, '1º TEMPO', 'Apito inicial — bola rolando!')
   return s
 }
 
@@ -263,6 +278,7 @@ const kickoff = (s: MatchState, kicking: TeamId) => {
   s.goalKick = false
   s.throwIn = false
   s.freeKick = false
+  s.corner = false
   endFreeKickPhase(s)
   s.penalty = false
   s.holdTime = 0
@@ -340,8 +356,15 @@ const advancePlayer = (s: MatchState, p: Player, dt: number) => {
     return
   }
   const eng = engagement(s, p)
-  const effMax = maxSpeed(p) * (MOVE.jogFloor + (1 - MOVE.jogFloor) * eng)
-  const dz = MOVE.deadzoneMin + (1 - eng) * (MOVE.deadzoneMax - MOVE.deadzoneMin)
+  // ESCANTEIO: durante o congelamento os jogadores CORREM para carregar/marcar a
+  // área (sem o freio de engajamento, que os deixaria a passo longe da bola).
+  const hustle = s.corner && s.deadball > 0
+  const effMax = hustle
+    ? maxSpeed(p) * MOVE.setPieceHustle
+    : maxSpeed(p) * (MOVE.jogFloor + (1 - MOVE.jogFloor) * eng)
+  const dz = hustle
+    ? MOVE.deadzoneMin
+    : MOVE.deadzoneMin + (1 - eng) * (MOVE.deadzoneMax - MOVE.deadzoneMin)
   // suaviza o alvo (low-pass): quando a IA muda o destino, o jogador não dá um
   // tranco — a mira escorrega até o novo ponto ao longo de alguns frames.
   const k = clamp(MOVE.targetLerp * dt, 0, 1)
@@ -452,9 +475,13 @@ const ballCandidate = (s: MatchState, team?: TeamId): Player | null => {
     if (s.ball.z > reachHeightOf(p)) continue // bola acima do alcance: voa por cima
     const d = dist(p.pos, s.ball.pos)
     if (d >= gainReach(p, ballSpeed, airborne)) continue
-    // disputa aérea: o mais forte no alto rouba metros à distância efetiva
+    // disputa aérea: o mais forte no alto rouba metros à distância efetiva. Além
+    // disso, o ATACANTE ganha uma vantagem extra quando a bola está na SUA área de
+    // ataque (o cruzamento pende para quem ataca o gol, não para o zagueiro que
+    // recua) — é o que faz o cruzamento virar cabeçada em vez de ser sempre cortado.
+    const atkBox = inPenaltyArea(s.ball.pos, attackingGoalX(s.attackDir[p.team]))
     const score = airborne && p.role !== 'GK'
-      ? d - aerialPower(p.attrs) * CONTROL.aerialDuelEdge
+      ? d - aerialPower(p.attrs) * CONTROL.aerialDuelEdge - (atkBox ? CONTROL.aerialAtkBoxEdge : 0)
       : d
     if (score < bestScore) {
       bestScore = score
@@ -646,6 +673,26 @@ const applyCard = (
 }
 
 /**
+ * LESÃO na falta: a entrada dura pode MACHUCAR o faltado. Raro e escalado pela
+ * violência do infrator (agressividade). O machucado passa a jogar mancando
+ * (`knock`, perde ritmo) e fica mais tempo caído; uma lesão grave compromete bem
+ * mais. Não expulsa ninguém do campo (sem substituições no motor).
+ */
+const maybeInjure = (s: MatchState, def: Player, victim: Player) => {
+  if (victim.role === 'GK') return
+  if (rand(s) >= INJURY.foulChance * (1 + nrm(def.attrs.aggression))) return
+  const serious = rand(s) < INJURY.seriousFrac
+  const impair = serious ? INJURY.seriousImpair : INJURY.minorImpair
+  victim.knock = Math.min(INJURY.maxImpair, victim.knock + impair)
+  victim.stun += serious ? INJURY.downExtra * 1.8 : INJURY.downExtra
+  addStoppage(s, STOPPAGE.perFoul) // atendimento rouba tempo (acréscimos)
+  addEvent(s, 'foul', victim.team,
+    serious
+      ? `🚑 ${victim.name} fica caído — sente muito a pancada!`
+      : `${victim.name} sente a pancada da falta e segue mancando`)
+}
+
+/**
  * Resolve uma falta: conta a falta e o cartão; se foi DENTRO da própria área do
  * infrator vira PÊNALTI; senão, aplica a LEI DA VANTAGEM (segue o jogo) ou marca
  * o tiro livre no ponto da falta.
@@ -677,6 +724,8 @@ const commitFoul = (s: MatchState, def: Player, carrier: Player) => {
   carrier.stun = DUEL.foulStun * (1 - knockResist(carrier.attrs) * 0.4)
   s.controllerId = null
   s.holdTime = 0
+  // a entrada pode ter MACHUCADO o faltado (joga mancando o resto do lance/jogo)
+  maybeInjure(s, def, carrier)
 
   // pênalti é sempre a manchete; senão, o cartão (se houve) prevalece sobre "FALTA"
   if (penalty) return penaltyKick(s, carrier.team, ownGoalX)
@@ -1007,11 +1056,12 @@ const tryGainLoose = (s: MatchState) => {
       // pode ser pego com a mão. O goleiro então o domina com os PÉS, como um
       // jogador de linha — é o que se faz na vida real para não cometer a infração
       // (e ainda pode errar o controle sob pressão, ver miscontrol em controlLoose).
-      // Sob PRESSÃO, porém, o afobado pode ERRAR e pegar com a mão → indireto na área.
+      // O afobado, porém, pode ERRAR e pegar o recuo com a mão (lapso mental) →
+      // tiro livre indireto na área. Mais provável sob PRESSÃO e com pouca frieza.
       if (isBackPass(s, cand)) {
         const pressed = nearestOpponentToPoint(s, cand.team, cand.pos, AI.pressureDist) !== null
-        if (pressed && rand(s) < GK.backPassPanic * (1 - nrm(a.composure)))
-          return backPassHandle(s, cand)
+        const panic = GK.backPassPanic * (1 - nrm(a.composure)) * (pressed ? GK.backPassPanicPress : 1)
+        if (rand(s) < panic) return backPassHandle(s, cand)
         return controlLoose(s, cand)
       }
       const fumble = (1 - nrm(a.handling)) * (1 - nrm(a.composure)) * GK.fumbleScale
@@ -1068,6 +1118,30 @@ const tryGainLoose = (s: MatchState) => {
  * quem cabeceia/salta melhor; a bola sobe e fica VIVA (disputa quem chega).
  */
 const clearUpfield = (s: MatchState, p: Player) => {
+  // NA PRÓPRIA ÁREA, o alívio desesperado sai errado com frequência: o zagueiro
+  // FATIA a bola para a linha de fundo (bandeirinha) → ESCANTEIO. É a fonte
+  // realista da maioria dos escanteios. Menos provável em quem tem frieza.
+  const ownGoalX = defendingGoalX(s.attackDir[p.team])
+  if (
+    inPenaltyArea(p.pos, ownGoalX) &&
+    rand(s) < AIR.clearBehindChance * (1 - nrm(p.attrs.composure) * AIR.clearBehindComposure)
+  ) {
+    const cornerY = p.pos.y < FIELD.cy ? RESTART.cornerInset : FIELD.h - RESTART.cornerInset
+    let d = dirTo(p.pos, vec(ownGoalX, cornerY))
+    if (len(d) < 1e-6) d = vec(ownGoalX === 0 ? -1 : 1, 0)
+    s.ball.pos = { ...p.pos }
+    s.ball.vel = scale(d, AIR.clearSpeedBase)
+    s.ball.vz = AIR.clearBehindVz
+    s.ball.spin = 0
+    s.controllerId = null
+    s.possession = p.team
+    s.lastTouchId = p.id // defensor foi o último a tocar → escanteio ao cruzar a linha
+    s.lastPasserId = null
+    s.holdTime = 0
+    s.kickCooldown = 0.3
+    endFreeKickPhase(s)
+    return
+  }
   const goalC = vec(attackingGoalX(s.attackDir[p.team]), FIELD.cy)
   let d = dirTo(p.pos, goalC)
   if (len(d) < 1e-6) d = vec(s.attackDir[p.team], 0)
@@ -1138,6 +1212,7 @@ const tryHeaderOnGoal = (s: MatchState, p: Player): boolean => {
   s.lastTouchId = p.id
   s.lastShooterId = p.id
   s.lastShotDist = dist(p.pos, goalC)
+  s.lastShotHeader = true
   s.holdTime = 0
   s.kickCooldown = 0.3
   s.stats[p.team].shots++
@@ -1315,15 +1390,30 @@ const scoreOrDisallow = (s: MatchState, gx: number) => {
   return scoreGoal(s, teamDefending(s, gx), gx)
 }
 
-/** Trata gols, quique na trave e os reinícios de bola fora (fundo e lateral). */
+/**
+ * TRAVESSÃO: a bola cruzou a boca do gol na ALTURA da trave superior → carimba o
+ * travessão e VOLTA ao jogo, despencando (bola viva, rebote disputável). Não é gol
+ * nem saída — o clássico "na trave!". Mantém quem tocou por último (rebote).
+ */
+const crossbarBounce = (s: MatchState, gx: number) => {
+  const b = s.ball
+  const into = gx === 0 ? 1 : -1 // sentido de volta ao campo
+  b.pos.x = gx + into * (PHYS.ballRadius + PHYS.postRadius + 0.05)
+  b.vel.x = Math.abs(b.vel.x) * into * PHYS.postRestitution // ricocheteia pra fora
+  b.vz = -Math.abs(b.vz) * PHYS.postRestitution - 2 // despenca do travessão
+  b.z = GOAL.height - 0.05
+  b.spin = 0
+  const who = s.lastShooterId !== null ? byId(s, s.lastShooterId) : null
+  addEvent(s, 'shot', who?.team ?? null, who ? `No travessão! ${who.name} carimba a trave!` : 'Na trave!')
+}
+
+/** Trata gols, quique nas traves e os reinícios de bola fora (fundo e lateral). */
 const resolveBounds = (s: MatchState) => {
   const b = s.ball
   // TIRO LIVRE INDIRETO já JOGADO por um 2º jogador (o toque não foi do cobrador)
   // → vira "direto": o gol volta a valer. Enquanto só o cobrador tocou, segue indireto.
   if (s.indirectFK && s.lastTouchId !== null && s.lastTouchId !== s.indirectTakerId)
     s.indirectFK = false
-  // dentro da BOCA do gol e ABAIXO do travessão — bola por cima (z alto) não é gol
-  const inMouth = b.pos.y > GOAL.top && b.pos.y < GOAL.bottom && b.z < GOAL.height
 
   // quique na trave: postes pontuais nas quinas do gol devolvem a bola
   for (const gx of [0, FIELD.w]) {
@@ -1342,15 +1432,20 @@ const resolveBounds = (s: MatchState) => {
     }
   }
 
-  // linha de fundo: gol é imediato; fora do gol a bola SEGUE rolando um instante
-  // (beginGoalLineOut) antes do tiro de meta/escanteio — o jogador vê que saiu.
-  if (b.pos.x <= 0) {
-    if (inMouth) return scoreOrDisallow(s, 0)
-    return beginGoalLineOut(s, 0)
-  } else if (b.pos.x >= FIELD.w) {
-    if (inMouth) return scoreOrDisallow(s, FIELD.w)
-    return beginGoalLineOut(s, FIELD.w)
+  // linha de fundo, na BOCA do gol: SOB o travessão = gol; NA altura da trave =
+  // carimba o travessão e volta; POR CIMA = saída (linha de fundo). Fora da boca =
+  // saída. O gol é imediato; a saída SEGUE rolando um instante (beginGoalLineOut).
+  const barBand = PHYS.ballRadius + PHYS.postRadius
+  const inMouthY = b.pos.y > GOAL.top && b.pos.y < GOAL.bottom
+  const atGoalLine = (gx: number) => {
+    if (inMouthY) {
+      if (b.z < GOAL.height - barBand) return scoreOrDisallow(s, gx) // sob o travessão
+      if (b.z <= GOAL.height + barBand) return crossbarBounce(s, gx) // no travessão!
+    }
+    return beginGoalLineOut(s, gx) // por cima do travessão ou pela lateral do gol
   }
+  if (b.pos.x <= 0) return atGoalLine(0)
+  if (b.pos.x >= FIELD.w) return atGoalLine(FIELD.w)
 
   // laterais → arremesso lateral para o adversário de QUEM TOCOU POR ÚLTIMO
   if (b.pos.y <= 0 || b.pos.y >= FIELD.h) {
@@ -1393,12 +1488,31 @@ const placeTaker = (p: Player, at: Vec2) => {
  * sai com a posse, o adversário recua (ver `desiredTarget`) e ninguém desarma na
  * cobrança. Compartilhado por tiro de meta, escanteio e arremesso lateral.
  */
+/**
+ * Fator 0..1 de "proteger a vantagem no fim": > 0 só quando `team` VENCE no terço
+ * final do jogo, saturando com 2+ gols de frente na entrega. Zero em empate/começo.
+ * Usado só para a CERA nas cobranças (não mexe no jogo em si).
+ */
+const leadProtect = (s: MatchState, team: TeamId): number => {
+  const diff = s.score[team] - s.score[other(team)]
+  if (diff <= 0) return 0
+  const prog = clamp(s.time / (2 * MATCH.halfSeconds), 0, 1)
+  const late = clamp((prog - GAMESTATE.lateStart) / (1 - GAMESTATE.lateStart), 0, 1)
+  return clamp(diff / GAMESTATE.diffCap, 0, 1) * late
+}
+
 const placeDeadBall = (
   s: MatchState,
   taker: Player,
   team: TeamId,
   deadball: number,
 ) => {
+  // CERA: o time que protege a vantagem no fim ALONGA a cobrança (cozinha a bola).
+  // O tempo perdido volta como ACRÉSCIMO (o árbitro compensa) — efeito neutro no
+  // placar, só o comportamento visível + os acréscimos crescerem num fim apertado.
+  const wasteExtra = deadball * leadProtect(s, team) * GAMESTATE.timeWaste
+  deadball += wasteExtra
+  if (wasteExtra > 0) addStoppage(s, wasteExtra * MATCH.clockRate)
   s.ball.pos = { ...taker.pos }
   s.ball.prevPos = { ...s.ball.pos }
   s.ball.prevZ = 0
@@ -1411,6 +1525,7 @@ const placeDeadBall = (
   s.goalKick = false // só o tiro de meta marca true (ver `goalKick`)
   s.throwIn = false // só o arremesso lateral marca true (ver `throwIn`)
   s.freeKick = false // só o tiro livre marca true (ver `setupFreeKick`)
+  s.corner = false // só o escanteio marca true (ver `cornerKick`)
   endFreeKickPhase(s) // some barreira/janela anteriores; o tiro livre repõe a sua
   s.penalty = false
   s.controllerId = taker.id
@@ -1500,8 +1615,25 @@ const cornerKick = (s: MatchState, team: TeamId, gx: number) => {
   const taker = nearestOfTeamTo(s, team, corner)
   placeTaker(taker, corner)
   placeDeadBall(s, taker, team, RESTART.cornerDeadball)
+  s.corner = true // carrega a área (ataque) e recua a defesa p/ marcar durante o congelamento
   s.stats[team].corners++
   announce(s, 'corner', team, 'ESCANTEIO', `Escanteio para ${TEAMS[team].name}`)
+}
+
+/**
+ * BOLA AO CHÃO (Lei 8): o árbitro parou o jogo por um motivo que NÃO é falta
+ * (aqui, uma lesão grave sem contato). Pela regra atual, a bola volta SEM disputa
+ * para o time que tinha a posse, no ponto onde o jogo parou; o adversário recua.
+ */
+const dropBall = (s: MatchState) => {
+  const team =
+    s.possession ?? (s.lastTouchId !== null ? byId(s, s.lastTouchId).team : 'home')
+  const spot = { ...s.ball.pos }
+  const taker = nearestOfTeamTo(s, team, spot)
+  placeTaker(taker, spot)
+  placeDeadBall(s, taker, team, INJURY.dropDeadball)
+  announce(s, 'foul', null, 'BOLA AO CHÃO',
+    `Jogo parado por lesão — bola ao chão para ${TEAMS[team].name}`)
 }
 
 /**
@@ -1651,12 +1783,15 @@ const switchSides = (s: MatchState) => {
   kickoff(s, other(s.firstKickoff))
   // a faixa fica por ÚLTIMO para não ser sobrescrita pelo evento do reinício — é
   // o "meio-tempo" que o jogador precisa ver com clareza (troca de lados).
-  announce(s, 'half', null, 'INTERVALO', '⏱️ Fim do 1º tempo — troca de lados')
+  announce(s, 'half', null, 'INTERVALO', 'Começa o 2º tempo — os times trocam de lado')
 }
 
 /** Avança a simulação em um passo fixo `dt` (segundos reais). */
 export const step = (s: MatchState, dt: number): void => {
   if (s.status === 'over' || s.celebration) return
+  // Obs.: o CONGELAMENTO da faixa de transição (introPause) é em tempo REAL e
+  // vive no loop de animação (useMatchLoop), não aqui — assim uma simulação
+  // headless (testes / resultado rápido) roda o relógio normalmente.
 
   // snapshot do estado anterior — o render interpola prev→pos (movimento suave)
   for (const p of s.players) p.prevPos = { ...p.pos }
@@ -1680,6 +1815,7 @@ export const step = (s: MatchState, dt: number): void => {
 
   // cansaço por ESFORÇO (gasta correndo, recupera andando) + atordoamento
   const sec = dt * MATCH.clockRate
+  let stopForInjury = false // uma lesão GRAVE sem contato para o jogo (bola ao chão)
   for (const p of s.players) {
     const speed = len(p.vel)
     const sta = nrm(p.attrs.stamina)
@@ -1696,12 +1832,38 @@ export const step = (s: MatchState, dt: number): void => {
     p.energy = clamp(p.energy, STAMINA.floor, 1)
     if (p.stun > 0) p.stun = Math.max(0, p.stun - dt)
     if (p.burst > 0) p.burst = Math.max(0, p.burst - dt)
+    // a dor da pancada CORRE devagar: o `knock` some ao longo da partida (leve some
+    // em minutos; grave persiste bem mais) — em segundos de JOGO (`sec`).
+    if (p.knock > 0) p.knock = Math.max(0, p.knock - sec * INJURY.recoverRate)
+
+    // LESÃO SEM CONTATO (estirão muscular): rara, ao SPRINTAR, mais provável com o
+    // músculo CANSADO. Leve → joga mancando e o jogo segue; GRAVE → o árbitro para
+    // o jogo (bola ao chão, Lei 8). Só em jogo aberto (não na bola parada/lesionado).
+    if (
+      s.deadball <= 0 &&
+      p.role !== 'GK' &&
+      p.stun <= 0 &&
+      p.knock < INJURY.maxImpair &&
+      speed > STAMINA.jogSpeed &&
+      rand(s) < INJURY.strainRate * (1 + (1 - p.energy) * INJURY.strainFatigue) * sec
+    ) {
+      const serious = rand(s) < INJURY.strainSeriousFrac
+      p.knock = Math.min(INJURY.maxImpair, p.knock + (serious ? INJURY.seriousImpair : INJURY.minorImpair))
+      p.stun += serious ? INJURY.downExtra * 2 : INJURY.downExtra
+      addStoppage(s, STOPPAGE.perFoul)
+      addEvent(s, 'foul', p.team,
+        serious ? `🚑 ${p.name} cai sozinho — parece muscular!` : `${p.name} sente um estirão e segue`)
+      if (serious && s.controllerId !== null) stopForInjury = true
+    }
 
     // transições visuais suaves (sem trocar de estado de repente):
     // realce de "dono da bola" e o "cair/levantar" surgem/somem com fade.
     p.ctrlAmt = lerp(p.ctrlAmt, s.controllerId === p.id ? 1 : 0, clamp(MOVE.ctrlEase * dt, 0, 1))
     p.downAmt = lerp(p.downAmt, p.stun > 0 ? 1 : 0, clamp(MOVE.downEase * dt, 0, 1))
   }
+  // lesão grave sem contato: o árbitro para o jogo → bola ao chão (o bloco de bola
+  // parada logo abaixo cuida do congelamento neste mesmo passo).
+  if (stopForInjury) dropBall(s)
 
   s.kickCooldown = Math.max(0, s.kickCooldown - dt)
   s.tackleCooldown = Math.max(0, s.tackleCooldown - dt)
@@ -1820,11 +1982,22 @@ export const step = (s: MatchState, dt: number): void => {
       if (action.type === 'shoot') {
         s.stats[carrier.team].shots++
         s.lastShooterId = carrier.id
+        s.lastShotHeader = false
         // CHUTE DIRETO de falta: abre a janela em que só o goleiro o defende (os
         // jogadores de linha não cabeceiam o petardo enquadrado; ver ballCandidate)
         if (s.freeKick) s.fkShotTimer = FREEKICK.shotWindow
         // distância ao gol no instante do chute — rotula golaço de longe
         s.lastShotDist = dist(carrier.pos, vec(attackingGoalX(s.attackDir[carrier.team]), FIELD.cy))
+        // CHUTE POR CIMA (blazed over): um chute rasteiro (sem loft de falta) pode
+        // SUBIR demais e ir por cima — mais provável ao afobado/tosco e sob pressão.
+        // Sobe forte e despenca; traz o "por cima do travessão"/carimbo na trave.
+        if (!action.loft) {
+          const compose = nrm(carrier.attrs.finishing) * 0.5 + nrm(carrier.attrs.composure) * 0.5
+          const pressuredShot =
+            nearestOpponentToPoint(s, carrier.team, carrier.pos, AI.pressureDist) !== null
+          const skyP = SHOT.skyBase * (1 - compose) * (pressuredShot ? SHOT.skyPress : 1)
+          if (rand(s) < skyP) s.ball.vz = SHOT.skyVzBase + rand(s) * SHOT.skyVzVar
+        }
         addEvent(s, 'shot', carrier.team, `Chute de ${carrier.name}!`)
       } else {
         // passe: o conduto atual passa a ser o candidato a assistência
@@ -1839,6 +2012,7 @@ export const step = (s: MatchState, dt: number): void => {
       s.goalKick = false // bola chutada/distribuída: o tiro de meta acabou
       s.throwIn = false // bola lançada: o arremesso lateral acabou
       s.freeKick = false // bola batida/lançada: o tiro livre acabou
+      s.corner = false // bola alçada: o escanteio acabou (segue jogo normal na área)
       s.holdTime = 0
       s.kickCooldown = 0.3
     }

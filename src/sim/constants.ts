@@ -38,10 +38,12 @@ export const AIR = {
   groundBand: 0.45,
   /** altura (m) até onde um jogador de linha bloqueia a bola COM O CORPO */
   bodyHeight: 1.25,
-  /** altura (m) que o jogador de linha alcança no salto/cabeça (+ aéreo) */
-  reachHeight: 2.45,
+  /** altura (m) que o jogador de linha alcança no salto/cabeça (+ aéreo). Subida
+   *  (era 2.45) p/ ALARGAR a janela do cabeceio: o atacante alcança o cruzamento
+   *  numa faixa maior da descida, gerando mais cabeçadas a gol. */
+  reachHeight: 3.0,
   /** alcance vertical extra (m) por competência aérea (jumping/heading) */
-  reachAerial: 0.85,
+  reachAerial: 1.05,
   /** altura (m) que o GOLEIRO alcança com as mãos/salto (+ aerialReach) */
   gkReachHeight: 2.85,
   gkReachAerial: 1.1,
@@ -55,12 +57,24 @@ export const AIR = {
   clearVz: 9,
   /** dispersão angular (rad) do afastamento, apertada por aerialPower */
   clearScatter: 0.6,
+  /** afastamento sob pressão NA PRÓPRIA ÁREA sai errado: chance-base de FATIAR a
+   *  bola para a LINHA DE FUNDO (escanteio) em vez de mandar pra cima — é a fonte
+   *  realista da maioria dos escanteios (zagueiro manda na bandeirinha "de qualquer
+   *  maneira"). Calibrado para ~10 escanteios/jogo. */
+  clearBehindChance: 0.58,
+  /** alívio da fatia-para-fora por frieza (× composure): o zagueiro frio erra menos */
+  clearBehindComposure: 0.3,
+  /** subida vertical (m/s) da bola fatiada para o escanteio (menor que clearVz) */
+  clearBehindVz: 5,
   // --- arco dos lançamentos com altura ---
-  /** pico (m) do arco de um CRUZAMENTO flutuado (sobe à altura de cabeça) */
-  crossPeakMin: 2.2,
-  crossPeakMax: 3.4,
-  /** chance de um cruzamento da ponta sair FLUTUADO (alto) em vez de rasteiro */
-  crossLoftChance: 0.66,
+  /** pico (m) do arco de um CRUZAMENTO flutuado. Mais BAIXO/tenso (era 2.2-3.4) p/ a
+   *  bola cruzar a área na ALTURA DA CABEÇA em vez de subir demais e passar por cima
+   *  de todos — assim o atacante alcança e cabeceia. */
+  crossPeakMin: 1.7,
+  crossPeakMax: 2.5,
+  /** chance de um cruzamento da ponta sair FLUTUADO (alto) em vez de rasteiro
+   *  (0.95: quase sempre alçado, p/ o cabeceio na área) */
+  crossLoftChance: 0.95,
   /** pico (m) do arco do TIRO DE META / chutão longo do goleiro */
   goalKickPeak: 6.5,
   /** pico (m) do arco do lançamento longo de alívio (sem alvo claro) */
@@ -79,6 +93,18 @@ export const AIR = {
  * é posta na PEQUENA área e o adversário aguarda FORA da GRANDE área até a bola
  * entrar em jogo.
  */
+/**
+ * Faixa de anúncio do lance (banner). FONTE ÚNICA de duração, compartilhada
+ * entre o motor (que congela a jogada nas transições de fase) e a UI (que exibe
+ * a faixa pelo mesmo tempo). Em ms — o motor converte para segundos.
+ */
+export const BANNER = {
+  /** faixa CENTRAL de transição de fase (1º tempo, intervalo) fica na tela */
+  phaseMs: 2200,
+  /** faixa de LANCE no topo (falta, cartão, escanteio...) fica na tela */
+  eventMs: 2200,
+}
+
 export const AREA = {
   /** grande área: 16.5m de profundidade */
   penaltyDepth: 16.5,
@@ -241,6 +267,39 @@ export const DOGSO = {
  * modelo de braço): só bola forte, e mais provável com a bola ALTA. Não se aplica
  * ao goleiro dentro da própria área (ali ele pode usar as mãos).
  */
+/**
+ * LESÕES/PANCADAS: uma falta dura pode machucar o jogador faltado. Ele passa a
+ * jogar MANCANDO (perde ritmo, `Player.knock`) e fica mais tempo caído. Raro e
+ * escalado pela violência do infrator (agressividade). A dor CORRE devagar ao
+ * longo da partida (o `knock` decai), então uma pancada leve some em minutos e uma
+ * grave persiste bem mais — sem substituições no motor, ninguém deixa o campo.
+ */
+export const INJURY = {
+  /** chance-base de uma FALTA marcada machucar o faltado (× 1+agressividade do infrator) */
+  foulChance: 0.06,
+  /** fração das lesões que são GRAVES (jogo muito comprometido, cai bastante) */
+  seriousFrac: 0.22,
+  /** ritmo PERDIDO (0..1) numa pancada leve — desconto na velocidade de topo */
+  minorImpair: 0.1,
+  /** ritmo perdido numa lesão grave (mancando de verdade) */
+  seriousImpair: 0.26,
+  /** teto de perda de ritmo acumulada (nunca reduz o jogador a andar) */
+  maxImpair: 0.36,
+  /** stun EXTRA (s) do jogador machucado — fica mais tempo no chão (leve) */
+  downExtra: 1.4,
+  /** o `knock` some por segundo de JOGO (corre a dor) — leve some em ~min, grave dura */
+  recoverRate: 0.0005,
+  // --- lesão SEM contato (estirão muscular) em jogo aberto ---
+  /** chance por SEGUNDO de jogo de um estirão ao SPRINTAR (base minúscula: raro) */
+  strainRate: 0.000006,
+  /** o cansaço eleva o risco de estirão (× isto por (1-energia)) — músculo cansado */
+  strainFatigue: 2.5,
+  /** fração dos estirões que são GRAVES → o árbitro PARA o jogo (bola ao chão, Lei 8) */
+  strainSeriousFrac: 0.4,
+  /** congela a jogada no reinício de bola ao chão (s) */
+  dropDeadball: 1.0,
+}
+
 export const HANDBALL = {
   /** chance-base de um contato bola-corpo FORTE ser marcado como mão */
   chance: 0.02,
@@ -335,6 +394,17 @@ export const SHOT = {
   spreadScale: 0.3,
   spreadTech: 0.3,
   spreadCons: 0.24,
+  // --- chute POR CIMA (blazed over) ---
+  /** chance-base de um chute SUBIR demais e ir por cima do gol — escalada por
+   *  (1 - finalização/frieza): o afobado/tosco manda pra arquibancada. Traz de
+   *  volta o "por cima do travessão" e o carimbo na trave (senão todo chute é
+   *  rasteiro) e ainda derruba um pouco a conversão (hoje ~3× alta). */
+  skyBase: 0.2,
+  /** multiplicador da chance de subir demais quando o finalizador está PRESSIONADO */
+  skyPress: 1.6,
+  /** velocidade vertical (m/s) de um chute que sobe demais — piso + parcela aleatória */
+  skyVzBase: 8,
+  skyVzVar: 7,
 }
 
 /**
@@ -343,24 +413,50 @@ export const SHOT = {
  * (aerialPower) decidem se sai enquadrada; composure firma a têmpora.
  */
 export const HEAD = {
-  /** chance-base de uma cabeçada a gol bem dada (subida p/ ~3 gols/jogo: cruzamento
-   *  e escanteio passam a render mais cabeçadas enquadradas) */
-  base: 0.36,
+  /** chance-base de uma cabeçada a gol bem dada (0.60: quando o atacante alcança o
+   *  cruzamento na área, a cabeçada tende a sair enquadrada — mais gols de cabeça) */
+  base: 0.6,
   /** peso da competência aérea (jumping/heading) na chance */
   skill: 0.5,
   /** peso da frieza (composure) na chance */
   composure: 0.12,
   /** piso/teto da chance de cabecear no rumo do gol */
   floor: 0.1,
-  cap: 0.9,
-  /** velocidade-base da cabeçada (m/s) — bem abaixo do chute de pé */
-  speedBase: 11,
+  cap: 0.96,
+  /** velocidade-base da cabeçada (m/s) — mais forte (era 11) p/ o goleiro segurar
+   *  menos a cabeçada; ainda abaixo do chute de pé */
+  speedBase: 17,
   /** parcela de velocidade vinda da impulsão/força aérea (m/s) */
-  speedSkill: 7,
-  /** dispersão angular máxima da cabeçada (rad) */
-  scatter: 0.42,
+  speedSkill: 9,
+  /** dispersão angular máxima da cabeçada (rad). Reduzida (era 0.42) p/ a cabeçada
+   *  sair mais ENQUADRADA — sem isso a maioria ia para fora e não virava gol. */
+  scatter: 0.16,
   /** quanto o heading aperta a mira (reduz o scatter; 0..1) */
   scatterAim: 0.6,
+}
+
+/**
+ * GESTÃO DE JOGO (leitura de placar + relógio): no fim da partida um time que
+ * VENCE protege o resultado (recua o bloco, compromete menos gente à frente) e um
+ * time que PERDE se lança ao ataque (empurra mais). Só atua no TERÇO FINAL e com
+ * diferença no placar — em 0×0 ou no começo, o fator é 1 (não muda nada, inclusive
+ * nas simulações neutras dos atributos).
+ */
+export const GAMESTATE = {
+  /** fração do jogo (0..1) a partir da qual a gestão de placar começa a pesar */
+  lateStart: 0.66,
+  /** diferença de gols em que o efeito satura (2+ de vantagem/desvantagem = pleno) */
+  diffCap: 2,
+  /** amplitude do efeito no fim com placar saturado (±30% na entrega) — presente e
+   *  visível (mais empates realistas, líder protege), sem sufocar o placar */
+  swing: 0.3,
+  /** o quanto o time que protege recua o bloco defensivo rumo ao próprio gol */
+  defendDrop: 0.16,
+  /** CERA: quanto o time que PROTEGE a vantagem no fim alonga suas cobranças de
+   *  bola parada (goleiro cozinha o tiro de meta, cobrador demora no lateral...).
+   *  O tempo "perdido" volta como ACRÉSCIMO (o árbitro compensa) — balanço neutro,
+   *  só o comportamento visível + os acréscimos crescerem no fim de um jogo apertado. */
+  timeWaste: 0.6,
 }
 
 export const AI = {
@@ -377,15 +473,15 @@ export const AI = {
   /** amplitude (m) da tendência posicional individual (variação humana) */
   humanJitter: 1.1,
   /** distância-base ao gol para tentar o chute (m); ajustada pela finalização.
-   *  Ampliada (era 15) p/ os times FINALIZAREM mais — sem isso, em nível baixo mal
-   *  se chegava ao chute e a Série D quase não fazia gol. */
-  shootRange: 30,
+   *  20: perto o bastante p/ o jogador ENTRAR na área/conduzir antes de bater, em vez
+   *  de martelar de 30m+ (30 gerava chute só de fora e gols demais). */
+  shootRange: 20,
   /** offTheBall: quanto a corrida sobe rumo à linha de impedimento (0..1) */
   offBallRunDepth: 0.35,
   /** desvio lateral máximo (m) em relação ao centro do gol p/ arriscar o chute.
-   *  Ampliado (era 15) junto com shootRange p/ gerar mais finalizações (o ângulo
-   *  ruim é penalizado na precisão do chute, então a conversão se auto-regula). */
-  shootCone: 30,
+   *  19: cone razoável junto do shootRange menor — chutes saem de posições melhores
+   *  (mais de dentro da área) em vez de ângulos impossíveis lá de fora. */
+  shootCone: 19,
   /** recuo (m) do poste ao mirar o canto no chute (margem de segurança) */
   shotCornerInset: 1.0,
   /** tempo máximo segurando a bola antes de decidir passar (s) */
@@ -414,6 +510,22 @@ export const AI = {
   laneWeight: 0.9,
   /** lane abaixo disto (m) = passe estrangulado, descarta a opção */
   laneBlocked: 1.4,
+  // --- recuo ao goleiro (recycle na saída de bola) ---
+  /** só recua ao GK quando o conduto está no PRÓPRIO terço (m do próprio gol) */
+  recycleDepth: 34,
+  /** o goleiro precisa estar LIVRE p/ receber (m ao adversário mais próximo) */
+  recycleGkFree: 6,
+  /** linha de passe até o goleiro limpa (m ao adversário mais próximo dela) */
+  recycleLane: 3,
+  /** recua ao GK quando o MELHOR passe à frente progride menos que isto (m) — sem
+   *  saída realmente progressiva, recicla em vez de forçar. Limiar permissivo: o que
+   *  de fato prende o recuo é a posição (próprio terço + GK livre atrás + linha limpa),
+   *  então na prática ele é RARO (~0.17/jogo) — a saída de bola lenta quase não existe
+   *  neste motor de ritmo picado (fraqueza #8), e forçar mais infla o placar/é irreal. */
+  recycleForwardGate: 26,
+  /** velocidade máx (m/s) do passe de recuo — firme mas DOMINÁVEL pelo GK (recuo
+   *  de pé, não um chute): abaixo de GK.controlSpeed para cair na regra do recuo */
+  recycleSpeed: 11,
   /** vision: peso extra dado à PROGRESSÃO do passe (quanto enxerga o passe pra frente) */
   visionForward: 0.9,
   /** vision: peso extra dado a ENFIAR em lane apertada (vê a janela difícil) */
@@ -430,17 +542,26 @@ export const AI = {
   crossFwdBase: 12,
   crossFwdSkill: 8,
   /** CRUZAMENTO de bola em jogo vindo da PONTA — o jogador aberto, perto da linha
-   *  de fundo de ataque, busca a área (analogia ao escanteio). */
+   *  de fundo de ataque, busca a área (analogia ao escanteio). Estes valores foram
+   *  ABERTOS (mais cruzamentos, de mais longe e mais cedo) p/ alimentar a área e
+   *  gerar gols de cabeça — antes o cruzamento quase não acontecia. */
   /** afastamento (m) do meio que caracteriza estar "na ponta" (|y - cy|) */
-  crossZoneWide: 16,
+  crossZoneWide: 8,
   /** profundidade (m) a partir da linha de fundo de ataque que forma a zona de cruzamento */
-  crossZoneDepth: 22,
+  crossZoneDepth: 36,
   /** distância (m) à linha de fundo em que o jogador "chegou na linha" e cruza de vez */
-  crossBylineDepth: 10,
+  crossBylineDepth: 26,
   /** espaço à frente (m) abaixo do qual a frente fechou e ele cruza em vez de insistir */
-  crossBylineRoom: 3.5,
+  crossBylineRoom: 8,
   /** na ponta, chance de trocar o cruzamento por um passe/recuo construído (variação) */
-  crossPassChance: 0.28,
+  crossPassChance: 0.05,
+  /** CRUZAMENTO EM JOGO ABERTO (não só da linha de fundo): distância (m) ao gol
+   *  abaixo da qual o carrier, havendo companheiro NA ÁREA e sem chute claro, alça a
+   *  bola na área. É a fonte principal dos cruzamentos que geram cabeçada. */
+  crossFromDist: 30,
+  /** chance de, atendidas as condições, ALÇAR o cruzamento em jogo aberto (senão
+   *  segue a jogada normal) — regula QUANTOS cruzamentos por jogo acontecem. */
+  earlyCrossChance: 0.85,
 }
 
 /** Parâmetros de movimentação individual e suavização. */
@@ -454,6 +575,11 @@ export const MOVE = {
   /** zona morta (m): perto do alvo, não corrige a posição */
   deadzoneMin: 0.4,
   deadzoneMax: 2.6,
+  /** fração da velocidade máx. ao SE POSICIONAR num ESCANTEIO (bola parada): os
+   *  jogadores CORREM para carregar/marcar a área antes da cobrança, ignorando o
+   *  freio de engajamento (que os deixaria jogando longe da bola). Sem isto o
+   *  congelamento acaba com a área vazia — nenhum atacante para cabecear. */
+  setPieceHustle: 0.95,
   /** quão forte a curva freia o jogador (0=para ao virar, 1=não freia) */
   turnFloor: 0.35,
   /** bônus de velocidade EFETIVA (m/s) por aceleração — nas distâncias curtas da
@@ -615,10 +741,12 @@ export const GK = {
   /** chance-base de marcar falta na carga (× agressividade do atacante) */
   chargeFoulChance: 0.5,
   chargeStun: 0.6,
-  /** RECUO (Lei 12): sob pressão, chance de o goleiro AFOBADO pegar o recuo de pé
-   *  com a MÃO (× falta de composure) → tiro livre indireto na área. Raro: o normal
-   *  é ele jogar com os pés; isto é o erro ocasional que vira lance de perigo. */
-  backPassPanic: 0.08,
+  /** RECUO (Lei 12): chance-base de o goleiro AFOBADO pegar o recuo de pé com a MÃO
+   *  (lapso mental, × falta de composure) → tiro livre indireto na área. Raro: o
+   *  normal é ele jogar com os pés; isto é o erro ocasional que vira lance de perigo. */
+  backPassPanic: 0.03,
+  /** multiplicador do erro do recuo quando há um adversário PRESSIONANDO o goleiro */
+  backPassPanicPress: 3,
 
   // --- organização da linha (item 8) ---
   /** o quanto a comunicação do GK fecha o bloco de defesa (0..1) */
@@ -628,8 +756,9 @@ export const GK = {
   /** alcance extra (m) para abraçar bolas altas/cruzamentos — aerialReach */
   aerialClaim: 1.4,
   // --- saída aérea no cruzamento/escanteio (claim) ---
-  /** chance-base de cravar o cruzamento alto ao sair */
-  claimBase: 0.34,
+  /** chance-base de cravar o cruzamento alto ao sair (reduzida p/ 0.10, era 0.34: o
+   *  goleiro abafa menos cruzamentos, deixando a bola sobrar p/ o cabeceio) */
+  claimBase: 0.1,
   /** peso do aerialReach em cravar a bola alta (× nrm aerialReach) */
   claimSkill: 0.5,
   /** penalidade por bola forte ao cravar de primeira (× m/s) */
@@ -704,10 +833,15 @@ export const CONTROL = {
   miscontrolScale: 0.06,
   /** velocidade (m/s) acima da qual a bola é "alta/forte" e exige disputa aérea */
   loftSpeed: 18,
-  /** alcance extra (m) ganho na bola alta conforme a competência aérea */
-  aerialReach: 0.9,
-  /** vantagem (m) de distância EFETIVA na dividida aérea conforme jumping/heading */
-  aerialDuelEdge: 1.4,
+  /** alcance extra (m) ganho na bola alta conforme a competência aérea (1.8, era 0.9:
+   *  o atacante "engata" no cruzamento de mais longe → mais cabeçadas). */
+  aerialReach: 1.8,
+  /** vantagem (m) de distância EFETIVA na dividida aérea conforme jumping/heading
+   *  (3.2: o atacante que ataca o cruzamento ganha mais divididas de cabeça na área) */
+  aerialDuelEdge: 3.2,
+  /** vantagem (m) EXTRA do atacante na dividida aérea DENTRO da sua área de ataque —
+   *  inclina o cruzamento para quem ataca o gol (mais gols de cabeça). Ver ballCandidate. */
+  aerialAtkBoxEdge: 3.0,
   /** velocidade (m/s) com que a bola escapa num erro de domínio */
   squirtSpeed: 6,
   /** velocidade (m/s) em que matar a bola fica nitidamente mais difícil */
@@ -800,8 +934,10 @@ export const RESTART = {
   /** faixa (m) ALÉM da linha do campo até onde a bola fora rola antes de parar (cabe
    *  no PAD do render para continuar visível, como se batesse no alambrado) */
   goalLineOutMargin: 3,
-  /** bola parada no escanteio — dá tempo dos atacantes subirem para a área (s) */
-  cornerDeadball: 1.0,
+  /** bola parada no escanteio — dá tempo dos atacantes CARREGAREM a área e da
+   *  defesa recuar p/ marcar antes da cobrança (s). Curto demais = cruzamento numa
+   *  área vazia; ~2.6s deixa os dois blocos se posicionarem (como num jogo real). */
+  cornerDeadball: 3.2,
   /** bola parada no arremesso lateral (s) — dá tempo de reposicionar, não cobra na hora */
   throwInDeadball: 1.8,
   /** recuo (m) da linha lateral onde o cobrador fica — praticamente EM CIMA da linha */
@@ -833,6 +969,30 @@ export const RESTART = {
   crossFar: 14,
   /** raio (m) na quina da linha de fundo em que o cobrador reconhece o escanteio e cruza */
   cornerZone: 3,
+  // --- posicionamento no ESCANTEIO (bola parada): carrega a área p/ o cabeceio ---
+  /** slots do ATAQUE na área do escanteio (profundidade da linha de fundo, desvio
+   *  lateral do centro do gol). Cobrem 1º pau, pequena área, marca do pênalti, 2º
+   *  pau e a ENTRADA (rebote) — casam com a faixa de queda do cruzamento (6..14m). */
+  cornerAtkSlots: [
+    { depth: 7, side: -3 }, // 1º pau (ataca a bola na queda)
+    { depth: 9, side: 2 }, // pequena/miolo
+    { depth: 11, side: -1 }, // marca do pênalti
+    { depth: 10, side: 5 }, // 2º pau
+    { depth: 14, side: 0 }, // entrada da área (rebote/afastamento curto)
+  ],
+  /** slots da DEFESA no escanteio: recua para dentro da própria área e protege o
+   *  GOL — GOALSIDE dos atacantes (mais fundo, na boca/6m e nos postes). Fica atrás
+   *  da zona de queda para o atacante disputar o 1º toque (senão a zaga corta tudo). */
+  cornerDefSlots: [
+    { depth: 2, side: -3 }, // 1º pau (linha)
+    { depth: 2, side: 3 }, // 2º pau (linha)
+    { depth: 5, side: 0 }, // miolo da pequena área
+    { depth: 6, side: -5 },
+    { depth: 7, side: 4 },
+  ],
+  /** profundidade (m), a partir do meio-campo rumo ao PRÓPRIO campo, onde os
+   *  zagueiros do time que COBRA o escanteio seguram (proteção ao contra-ataque) */
+  cornerBackHold: 20,
 }
 
 /**

@@ -18,7 +18,9 @@ export const maxSpeed = (p: Player): number => {
   // baixa stamina aprofunda a queda de ritmo quando a energia cai (não só dreno)
   const fatigueDrop = 0.18 + (1 - nrm(p.attrs.stamina)) * 0.12
   const fatigue = 1 - fatigueDrop * (1 - p.energy)
-  return base * fatigue
+  // lesão/pancada: um jogador machucado joga MANCANDO (perde ritmo) — `knock` já
+  // vem limitado (nunca zera a velocidade), some devagar no correr da partida.
+  return base * fatigue * (1 - p.knock)
 }
 
 /** Aceleração do jogador de linha (m/s²) — arranque (acceleration). */

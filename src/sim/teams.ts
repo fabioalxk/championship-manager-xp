@@ -1,4 +1,5 @@
 import type { Attrs, Role, TeamId, Vec2 } from './types'
+import { applyChaos, type ChaosCfg } from './chaos'
 
 export interface TeamInfo {
   id: TeamId
@@ -140,7 +141,7 @@ const ROSTERS: Record<TeamId, Spec[]> = { home: BRASIL, away: ARGENTINA }
 // ----------------------------------------------------------------------------
 
 /** Intensidade do caos — suba para mais variância/loucura, desça para suavizar. */
-export const CHAOS = {
+export const CHAOS: ChaosCfg = {
   spread: 1.5, //  afasta cada atributo da média do jogador (arquétipo + agudo)
   jitter: 13, //   ruído ± máximo por atributo (textura)
   spikes: 2, //    nº de "dons de craque" empurrados ao teto
@@ -169,41 +170,18 @@ const strSeed = (s: string): number => {
   return h >>> 0
 }
 
-/** Atributos exclusivos de goleiro: irrelevantes para a média de um jogador de linha. */
-const GK_ONLY: (keyof Attrs)[] = ['goalkeeping', 'handling', 'aerialReach', 'oneOnOne', 'kicking', 'throwing', 'communication']
-/** Núcleo que faz o goleiro DEFENDER — nunca vira "buraco" (senão deixa de ser GK). */
-const GK_CORE: (keyof Attrs)[] = ['goalkeeping', 'reflexes', 'handling']
-
-const clampAttr = (v: number) => Math.max(CHAOS.floor, Math.min(CHAOS.ceil, Math.round(v)))
-
-/** Escolhe os N atributos de menor hash (seleção estável e determinística). */
-const pickN = (keys: (keyof Attrs)[], seed: number, n: number): Set<keyof Attrs> =>
-  new Set([...keys].sort((a, b) => hash01(seed ^ strSeed(a)) - hash01(seed ^ strSeed(b))).slice(0, n))
-
-/** Aplica o caos sobre os atributos já mesclados (base + assinatura do jogador). */
-const chaosAttrs = (attrs: Attrs, role: Role, seed: number): Attrs => {
-  const out = { ...attrs }
-  const keys = Object.keys(out) as (keyof Attrs)[]
-  // a média (pivô do "spread") só conta os atributos que o jogador de fato usa
-  const used = role === 'GK' ? keys : keys.filter((k) => !GK_ONLY.includes(k))
-  const mean = used.reduce((a, k) => a + out[k], 0) / used.length
-
-  // dons saem de qualquer atributo usado; buracos só dos PONTOS FRACOS (< média),
-  // assim a assinatura (o pico que define o jogador) nunca é destruída
-  const spikable = used.filter((k) => !(role === 'GK' && GK_CORE.includes(k)))
-  const tankable = used.filter((k) => out[k] < mean && !(role === 'GK' && GK_CORE.includes(k)))
-  const spikes = pickN(spikable, seed ^ 0x51b3, CHAOS.spikes)
-  const tanks = pickN(tankable, seed ^ 0x7a2c, CHAOS.tanks)
-
-  for (const k of used) {
-    let v = mean + (out[k] - mean) * CHAOS.spread //         1) afasta da média
-    v += (hash01(seed ^ strSeed(k) ^ 0x9e3779b9) - 0.5) * 2 * CHAOS.jitter // 2) ruído
-    if (spikes.has(k)) v += CHAOS.spikeBoost //               3) dom de craque
-    if (tanks.has(k)) v -= CHAOS.tankDrop //                  4) buraco
-    out[k] = clampAttr(v)
-  }
-  return out
-}
+/**
+ * Aplica o caos sobre os atributos já mesclados (base + assinatura do jogador),
+ * com aleatoriedade estável por hash (o mesmo jogador real sempre sai igual).
+ */
+const chaosAttrs = (attrs: Attrs, role: Role, seed: number): Attrs =>
+  applyChaos(attrs, role, CHAOS, {
+    jitter: (k) => (hash01(seed ^ strSeed(k) ^ 0x9e3779b9) - 0.5) * 2,
+    pickN: (keys, purpose, n) => {
+      const salt = seed ^ (purpose === 'spike' ? 0x51b3 : 0x7a2c)
+      return new Set([...keys].sort((a, b) => hash01(salt ^ strSeed(a)) - hash01(salt ^ strSeed(b))).slice(0, n))
+    },
+  })
 
 export interface SeedPlayer {
   number: number

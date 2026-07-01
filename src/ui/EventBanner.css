@@ -1,0 +1,168 @@
+/* ---------- faixa de anúncio do lance (falta/pênalti/cartão/intervalo) ----------
+   Fica ABSOLUTA sobre o campo — o contêiner que a envolve precisa ser
+   position: relative (ex.: .pitch-wrap ou .cm-pitch). Serve tanto ao jogo de
+   seleção quanto ao modo carreira (ver EventBanner.tsx). */
+.event-banner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 14%;
+  margin: 0 auto;
+  width: max-content;
+  max-width: 90%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px 10px 14px;
+  border-radius: 12px;
+  pointer-events: none;
+  z-index: 5;
+  color: #fff;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(8, 13, 26, 0.96));
+  /* a barra colorida à esquerda usa a cor do time do lance (--accent) */
+  border-left: 6px solid var(--accent, #94a3b8);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+  /* entra deslizando do alto, segura e sai (casa com BANNER.eventMs = 2.2s) */
+  animation:
+    ebIn 0.34s cubic-bezier(0.2, 1.3, 0.4, 1) both,
+    ebOut 0.4s ease-in 1.8s both;
+}
+.eb-icon {
+  font-size: clamp(26px, 4.5vw, 40px);
+  line-height: 1;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.5));
+  animation: ebPop 0.4s cubic-bezier(0.2, 1.6, 0.35, 1) both;
+}
+.eb-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.eb-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(20px, 3.6vw, 30px);
+  font-weight: 900;
+  letter-spacing: 1px;
+  line-height: 1;
+}
+.eb-flag {
+  width: 24px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.eb-text {
+  font-size: clamp(11px, 1.9vw, 14px);
+  font-weight: 600;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* pênalti puxa o olhar: borda e título avermelhados/quentes */
+.event-banner.ev-penalty {
+  border-left-color: #f97316;
+}
+.event-banner.ev-penalty .eb-title {
+  color: #fdba74;
+}
+/* cartões pintam a faixa com a cor do cartão (sobrepõe a cor do time) */
+.event-banner.ti-yellow {
+  border-left-color: #facc15;
+}
+.event-banner.ti-yellow .eb-title {
+  color: #fde047;
+}
+.event-banner.ti-red {
+  border-left-color: #ef4444;
+}
+.event-banner.ti-red .eb-title {
+  color: #fca5a5;
+}
+/* ----- variante CENTRAL: transições de fase (intervalo, início, fim) ----- */
+/* uma faixa larga cruzando o MEIO do campo, grande e demorada, para o jogador
+   perceber claramente a troca de tempo / de lado. */
+.event-banner--center {
+  top: 50%;
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-width: 100%;
+  justify-content: center;
+  border-radius: 0;
+  border-left: none;
+  padding: 20px 24px;
+  gap: 16px;
+  background: linear-gradient(90deg,
+    rgba(8, 13, 26, 0) 0%,
+    rgba(8, 13, 26, 0.92) 18%,
+    rgba(15, 23, 42, 0.96) 50%,
+    rgba(8, 13, 26, 0.92) 82%,
+    rgba(8, 13, 26, 0) 100%);
+  /* fio superior e inferior em destaque cruzando a faixa */
+  border-top: 2px solid rgba(148, 163, 184, 0.5);
+  border-bottom: 2px solid rgba(148, 163, 184, 0.5);
+  box-shadow: none;
+  transform: translateY(-50%);
+  /* entra abrindo do centro, segura e some (casa com BANNER.phaseMs = 2.2s).
+     A saída é só fade (mantém o -50% centrado — nada de pulo em Y). */
+  animation:
+    ebCenterIn 0.4s cubic-bezier(0.2, 1.2, 0.35, 1) both,
+    ebCenterOut 0.4s ease-in 1.8s both;
+}
+.event-banner--center .eb-icon {
+  font-size: clamp(38px, 7vw, 60px);
+}
+.event-banner--center .eb-body {
+  align-items: center;
+  text-align: center;
+}
+.event-banner--center .eb-title {
+  font-size: clamp(32px, 6.5vw, 56px);
+  letter-spacing: 3px;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+}
+.event-banner--center .eb-text {
+  font-size: clamp(13px, 2.4vw, 18px);
+  letter-spacing: 0.5px;
+}
+@keyframes ebCenterIn {
+  0% { transform: translateY(-50%) scaleX(0.4); opacity: 0; }
+  100% { transform: translateY(-50%) scaleX(1); opacity: 1; }
+}
+@keyframes ebCenterOut {
+  from { transform: translateY(-50%); opacity: 1; }
+  to { transform: translateY(-50%); opacity: 0; }
+}
+@keyframes ebIn {
+  from { transform: translateY(-22px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes ebOut {
+  from { opacity: 1; }
+  to { transform: translateY(-10px); opacity: 0; }
+}
+@keyframes ebPop {
+  0% { transform: scale(0) rotate(-14deg); opacity: 0; }
+  60% { transform: scale(1.18) rotate(4deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .event-banner {
+    animation: ebFade 0.3s ease both, ebOut 0.3s ease 1.9s both;
+  }
+  .event-banner--center {
+    animation: ebFade 0.3s ease both, ebCenterOut 0.3s ease 1.9s both;
+  }
+  .eb-icon {
+    animation: none;
+  }
+}
+@keyframes ebFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

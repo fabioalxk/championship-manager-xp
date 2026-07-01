@@ -1,6 +1,6 @@
 import type { Dir, MatchState, Player, TeamId, Vec2 } from './types'
-import { AI, AIR, AREA, FIELD, FREEKICK, GK, GOAL, MOVE, PHYS, RESTART, SHOT, THROW } from './constants'
-import { attackingGoalX, defendingGoalX, homePos } from './formation'
+import { AI, AIR, AREA, FIELD, FREEKICK, GAMESTATE, GK, GOAL, MATCH, MOVE, PHYS, RESTART, SHOT, THROW } from './constants'
+import { attackingGoalX, defendingGoalX, homePos, inPenaltyArea } from './formation'
 import {
   chaseLead,
   crossSpeed,
@@ -291,6 +291,21 @@ const offsideLineFwd = (s: MatchState, attackTeam: TeamId, fwd: number): number 
       .map((o) => o.pos.x * fwd),
   )
 
+/**
+ * GESTÃO DE JOGO: fator de urgência do time pela LEITURA de placar + relógio.
+ * >1 = perdendo no fim (empurra ao ataque); <1 = ganhando no fim (protege, recua);
+ * 1 = empate/começo (não muda nada). É o "shut up shop" / "vai pra cima" real.
+ */
+const gameUrgency = (s: MatchState, team: TeamId): number => {
+  const diff = s.score[team] - s.score[team === 'home' ? 'away' : 'home']
+  if (diff === 0) return 1
+  const prog = clamp(s.time / (2 * MATCH.halfSeconds), 0, 1)
+  const late = clamp((prog - GAMESTATE.lateStart) / (1 - GAMESTATE.lateStart), 0, 1)
+  if (late <= 0) return 1
+  const lead = clamp(diff / GAMESTATE.diffCap, -1, 1) // +ganhando / −perdendo
+  return 1 - lead * late * GAMESTATE.swing
+}
+
 /** Alvo no ATAQUE: sobe em bloco, ganha profundidade e corre nas costas da defesa. */
 const attackTarget = (s: MatchState, p: Player, fwd: number, home: Vec2): Vec2 => {
   const ball = s.ball
@@ -300,12 +315,45 @@ const attackTarget = (s: MatchState, p: Player, fwd: number, home: Vec2): Vec2 =
   const adv = ROLE_ADVANCE[p.role] * (0.4 + ballFwd * 0.9) * offBallAdvance(p.attrs)
   const bias = humanBias(p)
 
-  let tx = home.x + fwd * adv * AI.attackPush + bias.x
+  // CRUZAMENTO iminente: bola do próprio time ABERTA na ponta e ADIANTADA rumo à
+  // linha de fundo → os atacantes INVADEM a área (1º pau / marca / 2º pau) para o
+  // cabeceio, ARRISCANDO a linha de impedimento (não respeitam o cap de offside —
+  // às vezes caem em impedimento, às vezes marcam). Sem isso NINGUÉM estava na área
+  // quando o cruzamento chegava e todo lance era abafado — não saía gol de cabeça.
+  const atkGx = attackingGoalX(fwd as Dir)
+  const ballWide = Math.abs(ball.pos.y - FIELD.cy) > AI.crossZoneWide
+  const ballByline = Math.abs(ball.pos.x - atkGx) < AI.crossZoneDepth
+  // CRUZAMENTO NO AR chegando à área: o ponto de QUEDA é perto do gol adversário
+  const landing = ball.z > AIR.groundBand ? predictBall(s, 0.4) : null
+  const crossDropping =
+    landing !== null && dist(landing, vec(atkGx, FIELD.cy)) < AI.crossZoneDepth
+  const isBoxRunner = p.role === 'FWD' || p.role === 'MID'
+  if (
+    isBoxRunner && p.id !== s.controllerId && s.possession === p.team &&
+    (crossDropping || (ballByline && ballWide))
+  ) {
+    // bola JÁ no ar rumo à área → CONVERGE no ponto de queda para cabecear (é o que
+    // finalmente faz o atacante disputar o cruzamento antes do zagueiro/goleiro).
+    if (crossDropping && landing) {
+      return vec(clamp(landing.x, 2, FIELD.w - 2), clamp(landing.y, GOAL.top - 2, GOAL.bottom + 2))
+    }
+    // ainda sem cruzamento no ar → pré-posiciona nos alvos (1º pau / marca / 2º pau)
+    const into = atkGx === 0 ? 1 : -1
+    const slot = p.id % 3
+    const bx = atkGx + into * (slot === 0 ? 6 : slot === 1 ? 11 : 9)
+    const by = FIELD.cy + (slot === 0 ? -3 : slot === 1 ? 0 : 4)
+    return vec(clamp(bx, 2, FIELD.w - 2), clamp(by, GOAL.top - 1, GOAL.bottom + 1))
+  }
+
+  // GESTÃO DE JOGO: no fim, quem perde compromete MAIS gente à frente (urg>1) e
+  // quem ganha compromete MENOS (urg<1) — protege ou persegue o resultado.
+  const urg = gameUrgency(s, p.team)
+  let tx = home.x + fwd * adv * AI.attackPush * urg + bias.x
   // corrida nas COSTAS da defesa: quem se movimenta bem (offTheBall) ataca a
   // linha de impedimento, ganhando profundidade até quase o último defensor.
   if (p.role !== 'GK' && p.id !== s.controllerId) {
     const line = offsideLineFwd(s, p.team, fwd) + AI.offsideSlack
-    const push = nrm(p.attrs.offTheBall) * AI.offBallRunDepth
+    const push = clamp(nrm(p.attrs.offTheBall) * AI.offBallRunDepth * urg, 0, 1)
     tx = tx * (1 - push) + line * fwd * push
   }
   const ty = home.y + (ball.pos.y - FIELD.cy) * AI.blockShiftY * pull + bias.y
@@ -345,6 +393,13 @@ const defendTarget = (s: MatchState, p: Player, home: Vec2): Vec2 => {
     const gk = teamGk(s, p.team)
     const comm = gk ? nrm(gk.attrs.communication) : 0
     ty = FIELD.cy + (ty - FIELD.cy) * (1 - GK.commandShift * comm)
+  }
+  // GESTÃO DE JOGO: o time que PROTEGE (urg<1) no fim recua o bloco rumo ao
+  // próprio gol (defende mais baixo, fecha os espaços perto da área).
+  const urg = gameUrgency(s, p.team)
+  if (urg < 1) {
+    const ownGoalX = defendingGoalX(s.attackDir[p.team])
+    tx += (ownGoalX - tx) * (1 - urg) * GAMESTATE.defendDrop
   }
   return vec(clamp(tx, 2, FIELD.w - 2), clamp(ty, 2, FIELD.h - 2))
 }
@@ -460,6 +515,67 @@ const freeKickStation = (s: MatchState, p: Player): Vec2 => {
 }
 
 /**
+ * Reposicionamento no ESCANTEIO (bola parada). Enquanto congela:
+ * - o time que COBRA carrega a grande área (1º pau / pequena / marca / 2º pau /
+ *   entrada) com os meias e atacantes para o cabeceio; os zagueiros seguram atrás
+ *   (proteção ao contra-ataque) e o cobrador fica na bandeirinha com a bola;
+ * - o time que DEFENDE recua para dentro da própria área e marca GOALSIDE (mais
+ *   perto do gol que o atacante), deixando um atacante à frente como saída.
+ * Sem isto o cruzamento caía numa área vazia — nenhum cabeceio a gol.
+ */
+const cornerStation = (s: MatchState, p: Player): Vec2 => {
+  const kt = s.restartTeam as TeamId
+  const dir = s.attackDir[p.team]
+
+  if (p.team === kt) {
+    if (p.id === s.controllerId) return p.pos // cobrador na bandeirinha
+    const atkGx = attackingGoalX(dir)
+    const into = atkGx === 0 ? 1 : -1
+    // zagueiros NÃO sobem: seguram no próprio campo contra o contra-ataque
+    if (p.role === 'DEF')
+      return vec(clamp(FIELD.cx - dir * RESTART.cornerBackHold, 5, FIELD.w - 5), homePos(p, dir).y)
+    // meias/atacantes invadem a área: o MAIS PERTO do gol pega o slot mais fundo
+    // (1º pau/pequena área) e os de trás pegam a marca/2º pau/ENTRADA — assim quem
+    // vem de longe mira a borda (alcançável) em vez de um alvo que nunca chega.
+    const slot = RESTART.cornerAtkSlots[boxRank(s, p, kt, atkGx)]
+    return vec(
+      clamp(atkGx + into * slot.depth, 3, FIELD.w - 3),
+      clamp(FIELD.cy + slot.side, GOAL.top - 4, GOAL.bottom + 4),
+    )
+  }
+
+  // time que defende o escanteio
+  const ownGx = defendingGoalX(dir)
+  const into = ownGx === 0 ? 1 : -1
+  // deixa UM atacante à frente como saída de contra-ataque; o resto marca a área
+  if (p.role === 'FWD') return vec(clamp(FIELD.cx + dir * 8, 5, FIELD.w - 5), homePos(p, dir).y)
+  const slot = RESTART.cornerDefSlots[boxRank(s, p, kt === 'home' ? 'away' : 'home', ownGx)]
+  return vec(
+    clamp(ownGx + into * slot.depth, 3, FIELD.w - 3),
+    clamp(FIELD.cy + slot.side, GOAL.top - 4, GOAL.bottom + 4),
+  )
+}
+
+/**
+ * Ranque (0..n-1) deste jogador entre os candidatos à área do escanteio do seu
+ * time, do MAIS PERTO ao mais longe do gol `gx` — indexa os slots (o mais perto
+ * pega o slot mais fundo). Exclui goleiro, cobrador e, no ataque, os zagueiros
+ * (que seguram atrás); usa `id` como desempate estável (sem tremer de frame a frame).
+ */
+const boxRank = (s: MatchState, p: Player, team: TeamId, gx: number): number => {
+  const goalC = vec(gx, FIELD.cy)
+  const isAtk = team === s.restartTeam
+  const cand = s.players.filter(
+    (q) =>
+      q.team === team && q.role !== 'GK' && q.id !== s.controllerId &&
+      !(isAtk ? q.role === 'DEF' : q.role === 'FWD'),
+  )
+  const key = (q: Player) => dist(q.pos, goalC) * 1000 + q.id
+  const rank = cand.filter((q) => key(q) < key(p)).length
+  return rank % RESTART.cornerAtkSlots.length
+}
+
+/**
  * Para onde este jogador quer se mover.
  * - O mais próximo da bola persegue (antecipando o movimento).
  * - Com a bola: sobe e corre sem bola; sem a bola: bloco compacto que bascula.
@@ -513,6 +629,7 @@ export const desiredTarget = (s: MatchState, p: Player): Vec2 => {
   if (s.deadball > 0 && s.restartTeam) {
     if (s.goalKick) return goalKickStation(s, p)
     if (s.freeKick) return freeKickStation(s, p)
+    if (s.corner) return cornerStation(s, p)
     if (p.team !== s.restartTeam) return homePos(p, dir)
   }
 
@@ -672,6 +789,25 @@ const freeKickAction = (s: MatchState, carrier: Player, dir: Dir, fwd: number): 
   return { type: 'pass', target: vec(carrier.pos.x + fwd * 35, carrier.pos.y), speed: a.speed, to: null, loft: a.loft }
 }
 
+/**
+ * RECUO AO GOLEIRO (recycle na saída de bola): quando um jogador FUNDO está sem
+ * progressão à frente e pressionado, devolver ao goleiro LIVRE é o que se faz na
+ * vida real para reconstruir a jogada — em vez de chutar às cegas. Só vale se o
+ * conduto está no próprio terço, o GK está mais recuado (é recuo, não passe à
+ * frente), livre de marcação e com a linha de passe limpa. Devolve o GK ou null.
+ */
+const gkRecycleTarget = (s: MatchState, carrier: Player, dir: Dir): Player | null => {
+  const gk = teamGk(s, carrier.team)
+  if (!gk) return null
+  const ownGoalX = defendingGoalX(dir)
+  const depth = Math.abs(carrier.pos.x - ownGoalX)
+  if (depth > AI.recycleDepth) return null // só no próprio terço defensivo
+  if (Math.abs(gk.pos.x - ownGoalX) >= depth) return null // GK tem de estar ATRÁS (recuo)
+  if (nearestOppDist(s, gk) < AI.recycleGkFree) return null // GK marcado: não arrisca
+  if (laneClearance(s, carrier.pos, gk.pos, carrier.team) < AI.recycleLane) return null
+  return gk
+}
+
 /** Decisão de quem está com a bola: conduzir, passar ou chutar. */
 export const decideAction = (s: MatchState, carrier: Player): Action => {
   const dir = s.attackDir[carrier.team]
@@ -817,6 +953,22 @@ export const decideAction = (s: MatchState, carrier: Player): Action => {
     }
   }
 
+  // CRUZAMENTO PARA O ATACANTE NA ÁREA (bola em jogo, não só da ponta na linha de
+  // fundo): se há companheiro DENTRO da grande área e o carrier está no terço final
+  // SEM chute claro, ALÇA a bola na área. É o que gera cruzamentos de verdade para o
+  // cabeceio — antes só cruzava quem chegava à linha de fundo, o que quase nunca
+  // acontecia, então a cabeçada não aparecia.
+  const boxRunner = teammates(s, carrier.team).some(
+    (m) => m.id !== carrier.id && m.role !== 'GK' && inPenaltyArea(m.pos, atkGx),
+  )
+  const wideEnough = Math.abs(carrier.pos.y - FIELD.cy) > 6
+  if (
+    boxRunner && dGoal < AI.crossFromDist && !inShotRange &&
+    (pressured || wideEnough) && rand(s) < AI.earlyCrossChance
+  ) {
+    return crossAction(s, carrier, crossTarget(s, atkGx), pressured)
+  }
+
   // Melhor opção de passe — visão + progressão + companheiro livre + LANE limpa.
   const best = bestPass(s, carrier, fwd)
 
@@ -852,6 +1004,20 @@ export const decideAction = (s: MatchState, carrier: Player): Action => {
 
   // decisions: jogador decidido segura menos a bola antes de passar
   if (pressured || s.holdTime > holdMax(carrier.attrs)) {
+    // RECUO AO GOLEIRO: sem passe progressivo à frente e com o GK livre atrás →
+    // recicla a posse (parte real da saída de bola) em vez do chutão às cegas.
+    if (!best || best.forward < AI.recycleForwardGate) {
+      const keeper = gkRecycleTarget(s, carrier, dir)
+      if (keeper) {
+        const speed = Math.min(passSpeed(carrier.attrs), AI.recycleSpeed)
+        return {
+          type: 'pass',
+          target: withNoise(s, carrier.pos, passLeadPoint(carrier, keeper, speed), passSpread(carrier.attrs, pressured)),
+          speed,
+          to: keeper,
+        }
+      }
+    }
     if (best) {
       // das pontas, bola enfiada/cruzada para frente usa o cruzamento (crossing);
       // caso contrário, é um passe normal (passing).

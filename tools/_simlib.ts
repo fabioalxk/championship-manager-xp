@@ -26,7 +26,7 @@ export const mkP = (attrs: Attrs, role: Role = 'FWD', energy = 1): Player => ({
   id: 0, number: 9, name: 'T', team: 'home', role, attrs,
   formationPos: { x: 0, y: 0 }, pos: { x: 0, y: 0 }, vel: { x: 0, y: 0 },
   prevPos: { x: 0, y: 0 }, smTarget: { x: 0, y: 0 }, settled: false,
-  energy, stun: 0, burst: 0, downAmt: 0, ctrlAmt: 0, yellow: false, goals: 0,
+  energy, stun: 0, burst: 0, knock: 0, downAmt: 0, ctrlAmt: 0, yellow: false, goals: 0,
 })
 export const rnd = () => Math.random()
 export const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))

@@ -1,5 +1,6 @@
 import type { Attrs, Role } from '../sim/types'
 import { baseAttrs } from '../sim/teams'
+import { applyChaos, type ChaosCfg, type ChaosSource } from '../sim/chaos'
 import type { ClubDef, ClubState, Division, GenPlayer, MarketPlayer } from './types'
 import { makeName, FIRST_COUNT, LAST_COUNT } from './names'
 import { overallOf } from './overall'
