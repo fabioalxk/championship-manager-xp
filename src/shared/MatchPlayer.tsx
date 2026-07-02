@@ -10,7 +10,7 @@ import { defaultFormation, formationName } from '../sim/formation'
 import { ClubBadge, type BadgeClub } from '../ui/ClubBadge'
 import { EventBanner } from '../ui/EventBanner'
 import FormationEditor from '../ui/FormationEditor'
-import { ClipboardIcon, PauseIcon, PlayIcon, SkipIcon, WhistleIcon } from '../ui/icons'
+import { ClipboardIcon, CloseIcon, PauseIcon, PlayIcon, SkipIcon, WhistleIcon } from '../ui/icons'
 import { MatchHistory } from './MatchHistory'
 
 const SCALE = 7
@@ -122,6 +122,15 @@ export default function MatchPlayer({
     setRunning(wasRunning.current)
   }
 
+  useEffect(() => {
+    if (!tactics) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeTactics()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [tactics])
+
   // No intervalo os times trocam de lado no campo (attackDir inverte no motor);
   // o placar acompanha, mantendo cada time do lado em que seu goleiro está.
   const swapped = hud.half === 2
@@ -165,12 +174,12 @@ export default function MatchPlayer({
           />
         )}
         {tactics && !over && (
-          <div className="cm-match-over cm-tactics-over">
-            <div className="cm-tactics-panel">
+          <div className="cm-match-over cm-tactics-over" onClick={closeTactics}>
+            <div className="cm-tactics-panel" onClick={(e) => e.stopPropagation()}>
               <div className="cm-tactics-head">
-                <span className="tv-name">{formationName(slots)}</span>
-                <button className="cm-btn cm-btn-go cm-btn-sm" onClick={closeTactics}>
-                  Voltar ao jogo
+                <span className="tv-name">Esquema: {formationName(slots)}</span>
+                <button className="cm-tactics-close" onClick={closeTactics} title="Voltar ao jogo">
+                  <CloseIcon size={16} />
                 </button>
               </div>
               <FormationEditor
@@ -179,6 +188,9 @@ export default function MatchPlayer({
                 onPreset={changeFormation}
                 onMove={(index, pos) => changeFormation(slots.map((s, j) => (j === index ? pos : s)))}
               />
+              <button className="cm-btn cm-btn-go cm-btn-lg cm-btn-block cm-tactics-btn-bottom" onClick={closeTactics}>
+                Voltar ao jogo
+              </button>
             </div>
           </div>
         )}

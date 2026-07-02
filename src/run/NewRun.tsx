@@ -1,9 +1,8 @@
-import { useState } from 'react'
 import { BRAZIL_ID, WC_TEAM_LIST } from '../game/worldcup'
 import { ClubBadge } from '../ui/ClubBadge'
 import { BallIcon, PlayIcon } from '../ui/icons'
 
-/** Tela inicial do modo roguelike: nome do técnico + escolha da seleção da jornada. */
+/** Tela inicial do modo roguelike: escolha da seleção da jornada. */
 export default function NewRun({
   onStart,
   hasSave,
@@ -13,12 +12,12 @@ export default function NewRun({
   hasSave: boolean
   onContinue: () => void
 }) {
-  const [name, setName] = useState('')
-  // Brasil sempre vem primeiro na lista e já entra selecionado por padrão.
-  const [clubId, setClubId] = useState(BRAZIL_ID)
+  // Apenas o Brasil pode ser escolhido por enquanto.
+  const clubId = BRAZIL_ID
 
-  const start = () => onStart(name.trim() || 'Técnico', clubId)
+  const start = () => onStart('Técnico', clubId)
   const chosen = WC_TEAM_LIST.find((c) => c.id === clubId)!
+  const teams = WC_TEAM_LIST.filter((c) => c.id === BRAZIL_ID)
 
   return (
     <div className="cm-newgame rq-title">
@@ -51,27 +50,13 @@ export default function NewRun({
         )}
 
         <div className="cm-step">
-          <span className="cm-step-num">1</span>
-          <span>Como você se chama?</span>
-        </div>
-        <input
-          className="cm-input"
-          value={name}
-          placeholder="Seu nome"
-          onChange={(e) => setName(e.target.value)}
-          maxLength={24}
-        />
-
-        <div className="cm-step">
-          <span className="cm-step-num">2</span>
-          <span>Escolha sua seleção</span>
+          <span>Sua seleção</span>
         </div>
         <div className="cm-club-grid rq-team-grid">
-          {WC_TEAM_LIST.map((c) => (
+          {teams.map((c) => (
             <button
               key={c.id}
               className={`cm-club-card ${clubId === c.id ? 'active' : ''}`}
-              onClick={() => setClubId(c.id)}
             >
               <ClubBadge club={c} size={40} />
               <span className="cm-club-card-name">{c.name}</span>

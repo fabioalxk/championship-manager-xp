@@ -347,3 +347,12 @@ export function WhistleIcon(p: IconProps) {
     </svg>
   )
 }
+
+/** Ícone de fechar (X) para modais e popups. */
+export function CloseIcon(p: IconProps) {
+  return (
+    <svg {...svgProps(p)} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+      <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  )
+}
